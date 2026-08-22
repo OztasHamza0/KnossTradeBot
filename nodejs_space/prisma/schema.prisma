@@ -1,0 +1,57 @@
+generator client {
+    provider = "prisma-client-js"
+    // No custom `output`: the default (node_modules/.prisma/client) resolves wherever
+    // the project is checked out. A hardcoded absolute path breaks on every machine
+    // but the one it was generated on.
+    // Targets cover glibc and musl (Alpine) on both x64 and arm64.
+    binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model chat_history {
+  id         Int      @id @default(autoincrement())
+  chat_id    String
+  role       String // 'user' | 'assistant'
+  content    String
+  created_at DateTime @default(now())
+
+  @@index([chat_id, created_at])
+}
+
+model user_instructions {
+  id          Int      @id @default(autoincrement())
+  chat_id     String
+  instruction String
+  created_at  DateTime @default(now())
+
+  @@index([chat_id])
+}
+
+model sent_signals {
+  id          Int      @id @default(autoincrement())
+  chat_id     String
+  pair        String
+  direction   String
+  entry_price Float
+  created_at  DateTime @default(now())
+
+  @@index([chat_id, pair, direction, created_at])
+}
+
+model active_chats {
+  id         Int      @id @default(autoincrement())
+  chat_id    String   @unique
+  created_at DateTime @default(now())
+}
+
+/// Per-chat balance backing the kill switch. Null balance = not yet reported.
+model user_state {
+  id           Int      @id @default(autoincrement())
+  chat_id      String   @unique
+  balance_usdt Float?
+  updated_at   DateTime @default(now()) @updatedAt
+}

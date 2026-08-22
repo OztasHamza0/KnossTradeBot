@@ -1,0 +1,69 @@
+# Bot + PostgreSQL + Caddy (otomatik HTTPS) — tek makinede tam yigin.
+# Oracle Cloud Always Free (ARM veya AMD) uzerinde calisir.
+#
+#   docker compose up -d --build
+#
+# Gerekli degiskenler .env.deploy dosyasindan gelir (bkz. .env.deploy.example).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Disariya port acilmaz — sadece bot agi uzerinden erisir.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  bot:
+    build:
+      context: ./nodejs_space
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # Migration, veritabani hazir olmadan calismasin.
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?connect_timeout=15
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ABACUSAI_API_KEY: ${ABACUSAI_API_KEY}
+      PUBLIC_URL: https://${DOMAIN}
+      CRON_API_KEY: ${CRON_API_KEY}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      LLM_MODEL: ${LLM_MODEL:-claude-fable-5}
+      PORT: 3000
+      TZ: Europe/Istanbul
+    expose:
+      - '3000'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - bot
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Sertifikalar kalici olmali; aksi halde her yeniden baslatmada
+      # Let's Encrypt'ten yeniden istenir ve haftalik limite takilirsin.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

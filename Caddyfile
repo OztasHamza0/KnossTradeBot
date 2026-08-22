@@ -1,0 +1,14 @@
+# Let's Encrypt sertifikasini otomatik alir ve yeniler.
+{$DOMAIN} {
+	tls {$ACME_EMAIL}
+
+	# Telegram webhook'u ve saglik kontrolu
+	reverse_proxy bot:3000
+
+	encode gzip
+
+	log {
+		output stdout
+		format console
+	}
+}

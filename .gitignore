@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+.env.local
+*.pem
+
+# Dependencies
+node_modules/
+.yarn/
+.pnp.*
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Prisma generated client
+**/.prisma/
+**/node_modules/.prisma/
+
+# Logs & coverage
+*.log
+npm-debug.log*
+yarn-error.log*
+coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Deploy secrets
+.env.deploy

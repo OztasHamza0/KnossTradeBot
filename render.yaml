@@ -1,0 +1,44 @@
+# Render Blueprint — https://render.com
+#
+# Repoyu Render'a bagladiginda bu dosyayi okur ve servisi kendisi kurar.
+# Veritabani Render'da DEGIL, Neon'da (render'in ucretsiz postgres'i
+# 30 gun sonra siliniyor; Neon'unki silinmiyor).
+#
+# İşaretli degiskenleri Render panelinden elle gireceksin (sync: false).
+
+services:
+  - type: web
+    name: kripto-trading-bot
+    runtime: docker
+    dockerfilePath: ./nodejs_space/Dockerfile
+    dockerContext: ./nodejs_space
+    plan: free
+    region: frankfurt
+    # Render bu adrese istek atarak servisin ayakta oldugunu dogrular.
+    healthCheckPath: /webhook/health
+    envVars:
+      # ---- Panelden elle girilecekler ----
+      - key: DATABASE_URL
+        sync: false # Neon connection string (?sslmode=require ile biter)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ABACUSAI_API_KEY
+        sync: false
+      - key: PUBLIC_URL
+        sync: false # ilk deploy sonrasi: https://<servis-adin>.onrender.com
+
+      # ---- Render otomatik uretir ----
+      - key: CRON_API_KEY
+        generateValue: true
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+
+      # ---- Sabitler ----
+      - key: LLM_MODEL
+        value: claude-fable-5
+      - key: TZ
+        value: Europe/Istanbul
+      # Servis uyanik tutulacagi icin uygulama ici cron calisir.
+      # Uyumasina izin verip dis cron kullanacaksan "true" yap.
+      - key: DISABLE_INTERNAL_CRON
+        value: 'false'
