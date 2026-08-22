@@ -31,3 +31,7 @@ Thumbs.db
 
 # Deploy secrets
 .env.deploy
+
+# Gecici izleme scriptleri
+_watch*.js
+_mdtest.js
