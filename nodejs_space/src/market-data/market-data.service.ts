@@ -51,7 +51,23 @@ export class MarketDataService {
   private readonly logger = new Logger(MarketDataService.name);
   private cache: MarketOverview | null = null;
   private cacheExpiry = 0;
+  /** Last fetch that actually produced coins — the stale fallback. */
+  private lastGood: MarketOverview | null = null;
+
   private readonly CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+  /**
+   * A total failure is cached far more briefly than a success. Caching an
+   * outage for the full TTL means the next two minutes of requests are served
+   * a known-empty result without ever retrying — which is what happened when
+   * the container cold-started and both feeds timed out.
+   */
+  private readonly FAILURE_TTL = 20 * 1000;
+  /**
+   * How stale the last good snapshot may be before it is worse than nothing.
+   * Prices this old must not drive a fresh entry, but they still let the model
+   * answer questions and reason about direction — and the age is in the prompt.
+   */
+  private readonly MAX_STALE_MS = 15 * 60 * 1000;
 
   private readonly BINANCE_HOSTS = [
     'https://fapi.binance.com',
@@ -66,10 +82,47 @@ export class MarketDataService {
     if (this.cache && Date.now() < this.cacheExpiry) {
       return this.cache;
     }
-    const data = await this.fetchFreshData();
-    this.cache = data;
-    this.cacheExpiry = Date.now() + this.CACHE_TTL;
-    return data;
+
+    const fresh = await this.fetchFreshData();
+
+    if (fresh.top50.length > 0) {
+      this.lastGood = fresh;
+      this.cache = fresh;
+      this.cacheExpiry = Date.now() + this.CACHE_TTL;
+      return fresh;
+    }
+
+    // Every feed failed. Fall back to the last good snapshot while it is still
+    // recent enough to be meaningful, and say plainly how old it is.
+    const ageMs = this.lastGood
+      ? Date.now() - this.lastGood.fetchedAt
+      : Infinity;
+
+    if (this.lastGood && ageMs < this.MAX_STALE_MS) {
+      const ageMin = Math.round(ageMs / 60000);
+      this.logger.warn(
+        `Market fetch failed; serving ${ageMin} min old snapshot`,
+      );
+
+      const stale: MarketOverview = {
+        ...this.lastGood,
+        warnings: [
+          ...fresh.warnings,
+          `DIKKAT: Bu veri ${ageMin} dakika eski — canli kaynaklara ulasilamadi. ` +
+            `Eski fiyata dayanarak YENI POZISYON ACMA.`,
+        ],
+      };
+      this.cache = stale;
+      this.cacheExpiry = Date.now() + this.FAILURE_TTL;
+      return stale;
+    }
+
+    this.logger.error(
+      'Market fetch failed and no usable snapshot is available',
+    );
+    this.cache = fresh;
+    this.cacheExpiry = Date.now() + this.FAILURE_TTL;
+    return fresh;
   }
 
   private async fetchFreshData(): Promise<MarketOverview> {
@@ -157,7 +210,7 @@ export class MarketDataService {
         const resp = await axios.get<BinanceTicker[]>(
           `${host}/fapi/v1/ticker/24hr`,
           {
-            timeout: 12000,
+            timeout: 15000,
           },
         );
 
@@ -202,7 +255,7 @@ export class MarketDataService {
           sparkline: false,
           price_change_percentage: '1h,24h',
         },
-        timeout: 15000,
+        timeout: 20000,
       },
     );
 
@@ -224,7 +277,7 @@ export class MarketDataService {
     classification: string;
   }> {
     const resp = await axios.get('https://api.alternative.me/fng/', {
-      timeout: 10000,
+      timeout: 12000,
     });
     const d = resp.data?.data?.[0];
     return {

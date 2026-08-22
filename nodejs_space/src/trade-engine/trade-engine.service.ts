@@ -147,7 +147,7 @@ export class TradeEngineService {
             chatId,
             response: { text: '', signal: null },
             alert: null,
-            reason: 'Piyasa verisi alinamadi — hicbir kaynak cevap vermedi.',
+            reason: 'Piyasa verisi alınamadı — hiçbir kaynak cevap vermedi.',
           });
         }
       }
@@ -167,7 +167,7 @@ export class TradeEngineService {
             chatId,
             response: { text: '', signal: null },
             alert: null,
-            reason: `Kill switch aktif — bakiye ${balance} USDT, ${MIN_BALANCE_USDT} USDT sinirinin altinda.`,
+            reason: `Kill switch aktif — bakiye ${balance} USDT, ${MIN_BALANCE_USDT} USDT sınırının altında.`,
           });
         }
         continue;
@@ -216,7 +216,7 @@ export class TradeEngineService {
             chatId,
             response: { text: '', signal: null },
             alert,
-            reason: `Model cagrisi basarisiz: ${error?.message}`,
+            reason: `Model çağrısı başarısız: ${error?.message}`,
           });
         continue;
       }
@@ -229,11 +229,11 @@ export class TradeEngineService {
       let deliverable: EngineResponse = { text: '', signal: null };
 
       if (!parsed.signal) {
-        reason = 'Model firsat gormedi (signal: false).';
+        reason = 'Model fırsat görmedi (signal: false).';
       } else if (parsed.signal.confidence < 7) {
         reason =
-          `Model ${parsed.signal.pair} ${parsed.signal.direction} onerdi ama guven skoru ` +
-          `${parsed.signal.confidence}/10 — otomatik nobet icin 7 gerekiyor.`;
+          `Model ${parsed.signal.pair} ${parsed.signal.direction} önerdi ama güven skoru ` +
+          `${parsed.signal.confidence}/10 — otomatik nöbet için 7 gerekiyor.`;
       } else {
         const validation = this.validateSignal(parsed.signal, market, balance);
         const duplicate = await this.isDuplicateSignal(
@@ -243,15 +243,15 @@ export class TradeEngineService {
         );
 
         if (!validation.valid) {
-          reason = `Sinyal guvenlik kontrolunden gecemedi: ${validation.reason}`;
+          reason = `Sinyal güvenlik kontrolünden geçemedi: ${validation.reason}`;
           this.logger.warn(`Auto-scan signal rejected: ${validation.reason}`);
         } else if (duplicate) {
           reason =
             `${parsed.signal.pair} ${parsed.signal.direction} son 4 saatte zaten ` +
-            `gonderilmisti (spam korumasi).`;
+            `gönderilmişti (spam koruması).`;
         } else {
           deliverable = parsed;
-          reason = 'Sinyal gonderildi.';
+          reason = 'Sinyal gönderildi.';
         }
       }
 
