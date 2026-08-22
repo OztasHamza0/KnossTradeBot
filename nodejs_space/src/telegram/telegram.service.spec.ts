@@ -213,4 +213,31 @@ describe('TelegramService command routing', () => {
       expect(service.parseWatchArg('/nobet 30dk')).toBe(30);
     });
   });
+
+  describe('isWatchTestCommand', () => {
+    it.each([
+      'nobet test',
+      'nöbet test',
+      'NÖBET TEST',
+      'nobet dene',
+      '/nobet test',
+    ])('matches %j', (text) => {
+      expect(service.isWatchTestCommand(text)).toBe(true);
+    });
+
+    it.each(['nobet', 'nobet 30dk', 'nobet kapat', 'test'])(
+      'does not match %j',
+      (text) => {
+        expect(service.isWatchTestCommand(text)).toBe(false);
+      },
+    );
+
+    // "nobet test" arayuz katmaninda test dalina gider; aralik ayristirici
+    // onu anlamaz ve null doner. handleWatch test dalini once kontrol ettigi
+    // icin bu dogru davranis.
+    it('is not mistaken for an interval', () => {
+      expect(service.parseWatchArg('nobet test')).toBeNull();
+      expect(service.isWatchCommand('nobet test')).toBe(true);
+    });
+  });
 });

@@ -25,6 +25,14 @@ export interface EngineResponse {
   signal: TradeSignal | null;
 }
 
+export interface AutoScanResult {
+  chatId: string;
+  response: EngineResponse;
+  alert: string | null;
+  /** Why this pass did or did not produce a message. Shown by "nöbet test". */
+  reason?: string;
+}
+
 /** Kill switch threshold — below this, no trade may be proposed. */
 export const MIN_BALANCE_USDT = 50;
 /** Position size ceiling as a fraction of balance. */
@@ -126,18 +134,23 @@ export class TradeEngineService {
    */
   async analyzeForAutoScan(
     chatIds: string[],
-  ): Promise<
-    { chatId: string; response: EngineResponse; alert: string | null }[]
-  > {
+    diagnostic = false,
+  ): Promise<AutoScanResult[]> {
     const market = await this.marketData.getMarketData();
-    const results: {
-      chatId: string;
-      response: EngineResponse;
-      alert: string | null;
-    }[] = [];
+    const results: AutoScanResult[] = [];
 
     if (market.top50.length === 0) {
       this.logger.warn('Auto-scan skipped: no market data available');
+      if (diagnostic) {
+        for (const chatId of chatIds) {
+          results.push({
+            chatId,
+            response: { text: '', signal: null },
+            alert: null,
+            reason: 'Piyasa verisi alinamadi — hicbir kaynak cevap vermedi.',
+          });
+        }
+      }
       return results;
     }
 
@@ -149,6 +162,14 @@ export class TradeEngineService {
       const balance = await this.getBalance(chatId);
       if (balance !== null && balance < MIN_BALANCE_USDT) {
         this.logger.log(`Auto-scan skipped for ${chatId}: kill switch active`);
+        if (diagnostic) {
+          results.push({
+            chatId,
+            response: { text: '', signal: null },
+            alert: null,
+            reason: `Kill switch aktif — bakiye ${balance} USDT, ${MIN_BALANCE_USDT} USDT sinirinin altinda.`,
+          });
+        }
         continue;
       }
 
@@ -190,38 +211,81 @@ export class TradeEngineService {
           `Auto-scan LLM call failed for ${chatId}: ${error?.message}`,
         );
         // Still deliver the volatility alert — it needs no model.
-        if (alert)
+        if (alert || diagnostic)
           results.push({
-            chatId: chatId,
+            chatId,
             response: { text: '', signal: null },
             alert,
+            reason: `Model cagrisi basarisiz: ${error?.message}`,
           });
         continue;
       }
 
       const parsed = this.parseResponse(raw);
 
+      // Why nothing was sent — surfaced by "nöbet test" so a silent watch can
+      // be told apart from a broken one.
+      let reason: string;
       let deliverable: EngineResponse = { text: '', signal: null };
-      if (parsed.signal && parsed.signal.confidence >= 7) {
+
+      if (!parsed.signal) {
+        reason = 'Model firsat gormedi (signal: false).';
+      } else if (parsed.signal.confidence < 7) {
+        reason =
+          `Model ${parsed.signal.pair} ${parsed.signal.direction} onerdi ama guven skoru ` +
+          `${parsed.signal.confidence}/10 — otomatik nobet icin 7 gerekiyor.`;
+      } else {
         const validation = this.validateSignal(parsed.signal, market, balance);
         const duplicate = await this.isDuplicateSignal(
           chatId,
           parsed.signal.pair,
           parsed.signal.direction,
         );
-        if (validation.valid && !duplicate) {
-          deliverable = parsed;
-        } else if (!validation.valid) {
+
+        if (!validation.valid) {
+          reason = `Sinyal guvenlik kontrolunden gecemedi: ${validation.reason}`;
           this.logger.warn(`Auto-scan signal rejected: ${validation.reason}`);
+        } else if (duplicate) {
+          reason =
+            `${parsed.signal.pair} ${parsed.signal.direction} son 4 saatte zaten ` +
+            `gonderilmisti (spam korumasi).`;
+        } else {
+          deliverable = parsed;
+          reason = 'Sinyal gonderildi.';
         }
       }
 
-      if (deliverable.signal || alert) {
-        results.push({ chatId: chatId, response: deliverable, alert });
+      if (deliverable.signal || alert || diagnostic) {
+        results.push({ chatId, response: deliverable, alert, reason });
       }
     }
 
     return results;
+  }
+
+  /** Diagnostics for "nöbet test" — no model call, so it is free and instant. */
+  async describeMarketState(): Promise<{
+    source: string;
+    coinCount: number;
+    sharpMovers: { symbol: string; change1h: number }[];
+    fearGreed: number | null;
+    fetchedAt: number;
+    warnings: string[];
+  }> {
+    const market = await this.marketData.getMarketData();
+    return {
+      source: market.source,
+      coinCount: market.top50.length,
+      sharpMovers: market.top50
+        .filter((c) => Math.abs(c.price_change_percentage_1h) > 5)
+        .map((c) => ({
+          symbol: c.symbol,
+          change1h: c.price_change_percentage_1h,
+        })),
+      fearGreed: market.fearGreed?.value ?? null,
+      fetchedAt: market.fetchedAt,
+      warnings: market.warnings,
+    };
   }
 
   private buildSystemPrompt(

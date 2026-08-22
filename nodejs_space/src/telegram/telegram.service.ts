@@ -188,6 +188,7 @@ export class TelegramService {
 • "kural sil 1" → Kural sil
 • "nöbet 30dk" → Otomatik tarama aralığını değiştir
 • "nöbet kapat" → Otomatik taramayı durdur
+• "nöbet test" → Nöbeti şimdi çalıştır, sonucu raporla
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
@@ -250,7 +251,89 @@ değiştirebilir, "nöbet kapat" ile durdurabilirsin.
     );
   }
 
+  isWatchTestCommand(text: string): boolean {
+    return /^(?:\/)?nobet\s+(test|dene|simdi)$/.test(this.normalize(text));
+  }
+
+  /**
+   * "nöbet test" — otomatik nöbet turunu simdi calistirir ve SONUCU HER ZAMAN
+   * bildirir. Normal nöbet sadece soyleyecek bir sey varsa konusuyor; bu
+   * yuzden sessizlik "calisiyor ama firsat yok" ile "bozuk" arasinda ayirt
+   * edilemiyordu. Bu komut o farki gosterir.
+   */
+  private async handleWatchTest(chatId: string): Promise<void> {
+    await this.sendMessage(
+      chatId,
+      '🧪 Otomatik nöbet turu şimdi çalıştırılıyor... 30-90 saniye sürebilir.',
+    );
+
+    const state = await this.tradeEngine.describeMarketState();
+
+    const sourceLabel =
+      state.source === 'binance'
+        ? 'Binance Futures ✅'
+        : state.source === 'coingecko'
+          ? 'CoinGecko (Binance erişilemedi) ⚠️'
+          : 'YOK ❌';
+
+    const moversText = state.sharpMovers.length
+      ? state.sharpMovers
+          .slice(0, 8)
+          .map(
+            (m) =>
+              `  ${m.symbol}: ${m.change1h >= 0 ? '+' : ''}${m.change1h.toFixed(2)}%`,
+          )
+          .join('\n')
+      : '  yok (hiçbir coin son 1 saatte %5 hareket etmemiş)';
+
+    const results = await this.tradeEngine.analyzeForAutoScan([chatId], true);
+    const result = results[0];
+
+    // Gercek nobet turunda gonderilecek olan mesajlar aynen gonderilir.
+    if (result?.alert) {
+      await this.sendMessage(chatId, result.alert);
+    }
+    if (result?.response.signal) {
+      const card = this.formatTradeCard(result.response.signal);
+      await this.sendMessage(
+        chatId,
+        `🔔 OTOMATİK NÖBET SİNYALİ\n\n${result.response.text ? `${result.response.text}\n\n` : ''}${card}`,
+      );
+    }
+
+    const wouldSend = Boolean(result?.alert || result?.response.signal);
+
+    await this.sendMessage(
+      chatId,
+      `🧪 NÖBET TESTİ SONUCU
+
+📡 Veri kaynağı: ${sourceLabel}
+🪙 Taranan coin: ${state.coinCount}
+😱 Fear & Greed: ${state.fearGreed ?? 'veri yok'}
+⏰ Veri zamanı: ${new Date(state.fetchedAt).toLocaleTimeString('tr-TR')}
+
+⚡ Sert hareket edenler (1s > %5):
+${moversText}
+
+🤖 Model sonucu:
+  ${result?.reason ?? 'sonuç alınamadı'}
+
+${
+  wouldSend
+    ? '✅ Bu tur mesaj ÜRETTİ — yukarıda gördün.'
+    : '🔇 Bu tur mesaj üretmedi. Bu NORMAL: otomatik nöbet sadece %5+ hareket ya da güven 7+ fırsat varsa konuşur.'
+}
+
+Zincir çalışıyor: veri → model → güvenlik kontrolü → Telegram.`,
+    );
+  }
+
   private async handleWatch(chatId: string, text: string): Promise<void> {
+    if (this.isWatchTestCommand(text)) {
+      await this.handleWatchTest(chatId);
+      return;
+    }
+
     const minutes = this.parseWatchArg(text);
 
     if (minutes === null) {
