@@ -54,7 +54,13 @@ export class TelegramService {
       // request, not a market scan, and the image must not be dropped.
       if (hasPhoto) {
         await this.handlePhoto(chatId, message, text);
-      } else if (text === '/start' || text === '/help' || text === 'yardim') {
+      } else if (
+        text === '/start' ||
+        text === '/help' ||
+        text === '/yardim' ||
+        text === 'yardim' ||
+        text === 'yardım'
+      ) {
         await this.handleStart(chatId);
       } else if (this.matchBalanceCommand(text) !== null) {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
@@ -683,6 +689,42 @@ ${dirIcon} Yön: ${signal.direction.toUpperCase()}
 
     if (!resp.data?.ok) {
       throw new Error(resp.data?.description ?? 'setWebhook basarisiz');
+    }
+  }
+
+  /**
+   * Fills Telegram's "/" menu. Done from code rather than by hand in BotFather
+   * so the menu cannot drift away from what the bot actually accepts.
+   *
+   * Command names must be lowercase a-z, 0-9 and _ only — hence "nobet" and
+   * "yardim" without Turkish characters. The handlers normalise anyway, so
+   * typing "nöbet" still works.
+   */
+  async setMyCommands(): Promise<void> {
+    const commands = [
+      { command: 'tara', description: 'Piyasayı tara, işlem fırsatı ara' },
+      { command: 'piyasa', description: 'Güncel fiyatlar ve Fear & Greed' },
+      {
+        command: 'bakiye',
+        description: 'Bakiyeni gör veya kaydet — örn: bakiye 100',
+      },
+      {
+        command: 'nobet',
+        description: 'Otomatik tarama aralığı — örn: nöbet 30dk',
+      },
+      { command: 'kurallar', description: 'Kayıtlı kalıcı kuralların' },
+      { command: 'yardim', description: 'Komutları ve kuralları göster' },
+      { command: 'start', description: 'Botu başlat' },
+    ];
+
+    const resp = await axios.post(
+      `${this.apiBase}/setMyCommands`,
+      { commands },
+      { timeout: 20000 },
+    );
+
+    if (!resp.data?.ok) {
+      throw new Error(resp.data?.description ?? 'setMyCommands basarisiz');
     }
   }
 

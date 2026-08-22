@@ -50,7 +50,26 @@ async function bootstrap() {
   logger.log(`Kripto Trading Bot ${port} portunda calisiyor`);
   logger.log(`Swagger: /${swaggerPath}`);
 
-  await registerTelegramWebhook(app.get(TelegramService), logger);
+  const telegram = app.get(TelegramService);
+  await registerTelegramWebhook(telegram, logger);
+  await registerTelegramCommands(telegram, logger);
+}
+
+/**
+ * Publishes the "/" menu. Independent of the webhook: it needs only the bot
+ * token, so it still works when PUBLIC_URL is unset.
+ */
+async function registerTelegramCommands(
+  telegram: TelegramService,
+  logger: Logger,
+): Promise<void> {
+  try {
+    await telegram.setMyCommands();
+    logger.log('Telegram komut menusu guncellendi');
+  } catch (error: any) {
+    // Cosmetic only — the bot still answers typed commands without a menu.
+    logger.warn(`Telegram komut menusu guncellenemedi: ${error?.message}`);
+  }
 }
 
 /**

@@ -183,4 +183,34 @@ describe('TelegramService command routing', () => {
       expect(service.formatInterval(mins)).toBe(expected);
     });
   });
+
+  // Telegram'in "/" menusu komutu slash ile gonderir; her biri dogru
+  // isleyiciye dusmeli.
+  describe('slash komutlari (BotFather menusu)', () => {
+    it('routes /tara to the scan handler', () => {
+      expect(service.isScanCommand('/tara')).toBe(true);
+    });
+
+    it('routes /piyasa to the market handler', () => {
+      expect(service.isMarketCommand('/piyasa')).toBe(true);
+    });
+
+    it('routes /bakiye to the balance handler as a status query', () => {
+      expect(Number.isNaN(service.matchBalanceCommand('/bakiye'))).toBe(true);
+    });
+
+    it('routes /nobet to the watch handler', () => {
+      expect(service.isWatchCommand('/nobet')).toBe(true);
+    });
+
+    it('routes /kurallar to the rules handler', () => {
+      expect(service.isRulesCommand('/kurallar')).toBe(true);
+    });
+
+    // Menu komutu ile birlikte arguman da yazilabilmeli
+    it('accepts an argument after a slash command', () => {
+      expect(service.matchBalanceCommand('/bakiye 250')).toBe(250);
+      expect(service.parseWatchArg('/nobet 30dk')).toBe(30);
+    });
+  });
 });
