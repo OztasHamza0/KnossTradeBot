@@ -31,42 +31,54 @@ export class AutoScanService {
   }
 
   /**
-   * Chats whose interval has elapsed. A chat with no user_state row has never
-   * been configured, so it takes the default cadence.
+   * Atomically claims the chats whose interval has elapsed.
+   *
+   * The claim is the same UPDATE that stamps last_scan_at, so two processes
+   * firing the same tick cannot both take a chat — the second one's WHERE no
+   * longer matches and it claims nothing. Read-then-scan-then-stamp did allow
+   * that: during a Render deploy the old and new containers overlap, both
+   * crons fired at the same minute, and the chat was scanned twice seconds
+   * apart (observed in production at 19:10:01 and 19:10:14).
+   *
+   * Stamping before the scan also means a crashed pass waits a full interval
+   * instead of being retried on every tick.
+   *
+   * 30s slack: a 10-minute interval sampled by a 5-minute tick lands at 10.0
+   * exactly, and without slack it would slip a tick and drift every cycle.
    */
-  async findDueChats(now = new Date()): Promise<string[]> {
+  async claimDueChats(): Promise<string[]> {
     const chats = await this.prisma.active_chats.findMany({
       select: { chat_id: true },
     });
     if (chats.length === 0) return [];
 
-    const states = await this.prisma.user_state.findMany({
-      where: { chat_id: { in: chats.map((c) => c.chat_id) } },
-    });
-    const stateByChat = new Map(states.map((s) => [s.chat_id, s]));
-
-    const due: string[] = [];
+    // The claim is an UPDATE, so a chat with no state row would never match.
     for (const { chat_id } of chats) {
-      const state = stateByChat.get(chat_id);
-
-      if (state && !state.scan_enabled) continue;
-
-      const interval = state?.scan_interval_minutes ?? DEFAULT_SCAN_INTERVAL;
-      const last = state?.last_scan_at;
-
-      // Never scanned → due now, so a fresh chat does not wait a full cycle.
-      if (!last) {
-        due.push(chat_id);
-        continue;
-      }
-
-      const elapsedMin = (now.getTime() - last.getTime()) / 60000;
-      // 30s slack: a 60-minute interval on a 5-minute tick would otherwise
-      // drift to 65 minutes every time.
-      if (elapsedMin >= interval - 0.5) due.push(chat_id);
+      await this.prisma.user_state.upsert({
+        where: { chat_id },
+        update: {},
+        create: { chat_id, scan_interval_minutes: DEFAULT_SCAN_INTERVAL },
+      });
     }
 
-    return due;
+    const claimed: string[] = [];
+    for (const { chat_id } of chats) {
+      const rows = await this.prisma.$executeRaw`
+        UPDATE user_state
+        SET last_scan_at = NOW()
+        WHERE chat_id = ${chat_id}
+          AND scan_enabled = true
+          AND (
+            last_scan_at IS NULL
+            OR last_scan_at <= NOW()
+               - (scan_interval_minutes * INTERVAL '1 minute')
+               + INTERVAL '30 seconds'
+          )
+      `;
+      if (rows > 0) claimed.push(chat_id);
+    }
+
+    return claimed;
   }
 
   async runAutoScan(force = false): Promise<number> {
@@ -79,13 +91,11 @@ export class AutoScanService {
     let delivered = 0;
 
     try {
+      // force skips the interval but still stamps, so a manual run does not
+      // leave the chat immediately due again on the next tick.
       const chatIds = force
-        ? (
-            await this.prisma.active_chats.findMany({
-              select: { chat_id: true },
-            })
-          ).map((c) => c.chat_id)
-        : await this.findDueChats();
+        ? await this.claimAllChats()
+        : await this.claimDueChats();
 
       if (chatIds.length === 0) return 0;
       this.logger.log(`Auto-scan running for ${chatIds.length} chat(s)`);
@@ -121,10 +131,6 @@ export class AutoScanService {
         );
       }
 
-      // Stamped for every scanned chat, not just the ones that produced a
-      // message — otherwise a quiet chat would be re-scanned on every tick.
-      await this.markScanned(chatIds);
-
       this.logger.log(`Auto-scan complete. ${delivered} message(s) delivered.`);
       return delivered;
     } catch (error: any) {
@@ -135,18 +141,27 @@ export class AutoScanService {
     }
   }
 
-  private async markScanned(chatIds: string[]): Promise<void> {
+  /** Manual trigger: takes every chat regardless of interval, but still stamps. */
+  private async claimAllChats(): Promise<string[]> {
+    const chats = await this.prisma.active_chats.findMany({
+      select: { chat_id: true },
+    });
     const now = new Date();
-    for (const chatId of chatIds) {
+
+    for (const { chat_id } of chats) {
       await this.prisma.user_state
         .upsert({
-          where: { chat_id: chatId },
+          where: { chat_id },
           update: { last_scan_at: now },
-          create: { chat_id: chatId, last_scan_at: now },
+          create: { chat_id, last_scan_at: now },
         })
         .catch((e: any) =>
-          this.logger.error(`markScanned failed for ${chatId}: ${e?.message}`),
+          this.logger.error(
+            `claimAllChats failed for ${chat_id}: ${e?.message}`,
+          ),
         );
     }
+
+    return chats.map((c) => c.chat_id);
   }
 }

@@ -75,8 +75,12 @@ Sırayla:
   cron'unu kullanmak istersen `DISABLE_INTERNAL_CRON=true` yapıp
   `/auto-scan/execute` endpoint'ini tetikle. İkisi aynı anda çalışırsa
   servis içi kilit çakışmayı engeller.
-- **Tek instance çalıştır.** Cron uygulama içinde olduğu için birden fazla
-  replica aynı saatte aynı taramayı yapar ve kullanıcıya mükerrer mesaj gider.
+- **Tek instance önerilir.** Cron uygulama içinde. Birden fazla replica
+  çalışsa bile mükerrer mesaj gitmez — tarama hakkı `user_state.last_scan_at`
+  üzerinden atomik `UPDATE` ile kapılır, ikinci instance'ın `WHERE`'i tutmaz.
+  Yine de fazladan replica boşuna kaynak harcar. Render'ın deploy sırasında
+  eski ve yeni konteyneri kısa süre birlikte çalıştırması bu koruma sayesinde
+  sorun çıkarmaz.
 - **Demir kurallar kodda zorlanır**, sadece prompt'a bırakılmaz:
   `TradeEngineService.validateSignal` stop-loss/take-profit yönünü, kaldıraç
   aralığını, margin oranını ve kill switch'i kontrol eder; geçmeyen sinyal
