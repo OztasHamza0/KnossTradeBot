@@ -8,6 +8,11 @@ import {
   MIN_BALANCE_USDT,
 } from '../trade-engine/trade-engine.service';
 import { MarketDataService } from '../market-data/market-data.service';
+import {
+  MIN_SCAN_INTERVAL,
+  MAX_SCAN_INTERVAL,
+  DEFAULT_SCAN_INTERVAL,
+} from '../auto-scan/auto-scan.constants';
 import axios from 'axios';
 
 /** Telegram hard-caps a single sendMessage body at 4096 characters. */
@@ -53,6 +58,8 @@ export class TelegramService {
         await this.handleStart(chatId);
       } else if (this.matchBalanceCommand(text) !== null) {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
+      } else if (this.isWatchCommand(text)) {
+        await this.handleWatch(chatId, text);
       } else if (this.isRulesCommand(text)) {
         await this.handleShowRules(chatId);
       } else if (this.isDeleteRuleCommand(text)) {
@@ -111,6 +118,36 @@ export class TelegramService {
     return /\b(piyasa|market|fiyat|fiyatlar|piyasa durumu)\b/.test(t);
   }
 
+  private isWatchCommand(text: string): boolean {
+    return /^(?:\/)?nobet\b/.test(this.normalize(text));
+  }
+
+  /**
+   * "nobet"        -> mevcut ayari goster
+   * "nobet 30dk"   -> 30 dakikada bir
+   * "nobet 2 saat" -> 120 dakikada bir
+   * "nobet kapat"  -> otomatik nobeti durdur
+   * Donen deger dakikadir; 0 = kapat, -1 = ac, null = anlasilmadi.
+   */
+  parseWatchArg(text: string): number | null {
+    const arg = this.normalize(text)
+      .replace(/^(?:\/)?nobet\s*/, '')
+      .trim();
+
+    if (!arg) return NaN; // argumansiz -> durumu goster
+    if (/^(kapat|kapali|dur|durdur|iptal|off)$/.test(arg)) return 0;
+    if (/^(ac|acik|basla|baslat|on|devam)$/.test(arg)) return -1;
+
+    const m = arg.match(/^(\d+)\s*(saat|sa|s|dakika|dakka|dak|dk|d|min|m)?$/);
+    if (!m) return null;
+
+    const value = parseInt(m[1], 10);
+    const unit = m[2] ?? 'dk';
+    // Birim yazilmazsa dakika kabul edilir.
+    const isHours = /^(saat|sa|s)$/.test(unit);
+    return isHours ? value * 60 : value;
+  }
+
   private isRulesCommand(text: string): boolean {
     const t = this.normalize(text);
     return /^(kurallarim|kurallar|\/kurallar)$/.test(t);
@@ -143,13 +180,16 @@ export class TelegramService {
 • "bakiye" → Kayıtlı bakiyeni göster
 • "kurallarım" → Kayıtlı kurallarını göster
 • "kural sil 1" → Kural sil
+• "nöbet 30dk" → Otomatik tarama aralığını değiştir
+• "nöbet kapat" → Otomatik taramayı durdur
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
 "Bundan sonra kaldıracı 5x geçme" → Kaydederim, her kararda uygularım
 
-⏰ Saatte bir otomatik nöbet tutuyorum. Sert hareket ya da güçlü fırsat varsa
-sen yazmadan haber veriyorum.
+⏰ Varsayılan olarak saatte bir nöbet tutuyorum. Sert hareket ya da güçlü
+fırsat varsa sen yazmadan haber veriyorum. Aralığı "nöbet 30dk" ile
+değiştirebilir, "nöbet kapat" ile durdurabilirsin.
 
 ⚡ Kurallarım demir gibi:
 ✅ Her işlemde stop-loss + take-profit
@@ -202,6 +242,119 @@ sen yazmadan haber veriyorum.
             `📏 Bundan sonra margin üst sınırın: ${maxMargin} USDT (bakiyenin %50'si)\n\n` +
             `Hazırız! "tara" yazıp başlayalım 💪`,
     );
+  }
+
+  private async handleWatch(chatId: string, text: string): Promise<void> {
+    const minutes = this.parseWatchArg(text);
+
+    if (minutes === null) {
+      await this.sendMessage(
+        chatId,
+        `❓ Anlamadım. Örnekler:
+• "nöbet 30dk"
+• "nöbet 2 saat"
+• "nöbet kapat"
+• "nöbet" (durumu göster)`,
+      );
+      return;
+    }
+
+    // Argümansız "nöbet" → mevcut ayarı göster
+    if (Number.isNaN(minutes)) {
+      const state = await this.prisma.user_state.findUnique({
+        where: { chat_id: chatId },
+      });
+      const interval = state?.scan_interval_minutes ?? DEFAULT_SCAN_INTERVAL;
+      const enabled = state?.scan_enabled ?? true;
+      const last = state?.last_scan_at;
+
+      await this.sendMessage(
+        chatId,
+        enabled
+          ? `⏰ Otomatik nöbet AÇIK
+
+Aralık: ${this.formatInterval(interval)}
+Son tarama: ${last ? last.toLocaleString('tr-TR') : 'henüz yapılmadı'}
+
+Değiştirmek için: "nöbet 30dk"
+Kapatmak için: "nöbet kapat"`
+          : `⏸️ Otomatik nöbet KAPALI
+
+Kayıtlı aralık: ${this.formatInterval(interval)}
+
+Açmak için: "nöbet aç"`,
+      );
+      return;
+    }
+
+    if (minutes === 0) {
+      await this.prisma.user_state.upsert({
+        where: { chat_id: chatId },
+        update: { scan_enabled: false },
+        create: { chat_id: chatId, scan_enabled: false },
+      });
+      await this.sendMessage(
+        chatId,
+        `⏸️ Otomatik nöbet kapatıldı. Artık sen yazmadan tarama yapmayacağım.
+
+Açmak için: "nöbet aç"`,
+      );
+      return;
+    }
+
+    if (minutes === -1) {
+      const state = await this.prisma.user_state.upsert({
+        where: { chat_id: chatId },
+        update: { scan_enabled: true },
+        create: { chat_id: chatId, scan_enabled: true },
+      });
+      await this.sendMessage(
+        chatId,
+        `▶️ Otomatik nöbet açıldı. Aralık: ${this.formatInterval(state.scan_interval_minutes)}`,
+      );
+      return;
+    }
+
+    if (minutes < MIN_SCAN_INTERVAL || minutes > MAX_SCAN_INTERVAL) {
+      await this.sendMessage(
+        chatId,
+        `❌ Aralık ${MIN_SCAN_INTERVAL} dakika ile ${this.formatInterval(MAX_SCAN_INTERVAL)} arasında olmalı.
+
+Her tarama bir yapay zeka çağrısı demek — çok sık ayarlamak kotanı yakar, üstelik piyasa o kadar hızlı değişmez.`,
+      );
+      return;
+    }
+
+    await this.prisma.user_state.upsert({
+      where: { chat_id: chatId },
+      update: { scan_interval_minutes: minutes, scan_enabled: true },
+      create: {
+        chat_id: chatId,
+        scan_interval_minutes: minutes,
+        scan_enabled: true,
+      },
+    });
+
+    const perDay = Math.round(1440 / minutes);
+    const warning =
+      minutes < 30
+        ? `
+
+⚠️ Sıkı tempo. Aynı fırsatı tekrar göndermem (4 saat spam koruması var) ama yapay zeka kotan hızlı erir.`
+        : '';
+
+    await this.sendMessage(
+      chatId,
+      `✅ Otomatik nöbet ${this.formatInterval(minutes)} olarak ayarlandı.
+Günde ~${perDay} tarama yapacağım.${warning}`,
+    );
+  }
+
+  private formatInterval(minutes: number): string {
+    if (minutes >= 60 && minutes % 60 === 0) {
+      return `${minutes / 60} saat`;
+    }
+    return `${minutes} dakika`;
   }
 
   private async handleScan(chatId: string): Promise<void> {

@@ -120,10 +120,13 @@ export class TradeEngineService {
   }
 
   /**
-   * Hourly watch. Runs on every active chat regardless of volatility —
-   * sharp movers only change the framing, they are not a gate.
+   * The watch pass. Runs on the chats the scheduler decided are due —
+   * cadence is per-chat and lives in AutoScanService, not here.
+   * Volatility only changes the framing; it is never a gate.
    */
-  async analyzeForAutoScan(): Promise<
+  async analyzeForAutoScan(
+    chatIds: string[],
+  ): Promise<
     { chatId: string; response: EngineResponse; alert: string | null }[]
   > {
     const market = await this.marketData.getMarketData();
@@ -142,14 +145,10 @@ export class TradeEngineService {
       (c) => Math.abs(c.price_change_percentage_1h) > 5,
     );
 
-    const activeChats = await this.prisma.active_chats.findMany();
-
-    for (const chat of activeChats) {
-      const balance = await this.getBalance(chat.chat_id);
+    for (const chatId of chatIds) {
+      const balance = await this.getBalance(chatId);
       if (balance !== null && balance < MIN_BALANCE_USDT) {
-        this.logger.log(
-          `Auto-scan skipped for ${chat.chat_id}: kill switch active`,
-        );
+        this.logger.log(`Auto-scan skipped for ${chatId}: kill switch active`);
         continue;
       }
 
@@ -166,7 +165,7 @@ export class TradeEngineService {
               .join('\n')
           : null;
 
-      const instructions = await this.getUserInstructions(chat.chat_id);
+      const instructions = await this.getUserInstructions(chatId);
       const systemPrompt = this.buildSystemPrompt(
         market,
         instructions,
@@ -188,12 +187,12 @@ export class TradeEngineService {
         raw = await this.callLLM(this.buildMessages(systemPrompt, [], userMsg));
       } catch (error: any) {
         this.logger.error(
-          `Auto-scan LLM call failed for ${chat.chat_id}: ${error?.message}`,
+          `Auto-scan LLM call failed for ${chatId}: ${error?.message}`,
         );
         // Still deliver the volatility alert — it needs no model.
         if (alert)
           results.push({
-            chatId: chat.chat_id,
+            chatId: chatId,
             response: { text: '', signal: null },
             alert,
           });
@@ -206,7 +205,7 @@ export class TradeEngineService {
       if (parsed.signal && parsed.signal.confidence >= 7) {
         const validation = this.validateSignal(parsed.signal, market, balance);
         const duplicate = await this.isDuplicateSignal(
-          chat.chat_id,
+          chatId,
           parsed.signal.pair,
           parsed.signal.direction,
         );
@@ -218,7 +217,7 @@ export class TradeEngineService {
       }
 
       if (deliverable.signal || alert) {
-        results.push({ chatId: chat.chat_id, response: deliverable, alert });
+        results.push({ chatId: chatId, response: deliverable, alert });
       }
     }
 

@@ -113,4 +113,74 @@ describe('TelegramService command routing', () => {
       chunks.forEach((c) => expect(c.length).toBeLessThanOrEqual(4096));
     });
   });
+
+  describe('parseWatchArg', () => {
+    it.each([
+      ['nobet 30dk', 30],
+      ['nobet 30 dk', 30],
+      ['nobet 30 dakika', 30],
+      ['nobet 45', 45],
+      ['nobet 2 saat', 120],
+      ['nobet 2saat', 120],
+      ['nobet 2s', 120],
+      ['nobet 4 sa', 240],
+    ])('parses %j to %i minutes', (text, expected) => {
+      expect(service.parseWatchArg(text)).toBe(expected);
+    });
+
+    it.each(['nobet kapat', 'nobet dur', 'nobet iptal'])(
+      'treats %j as off',
+      (text) => {
+        expect(service.parseWatchArg(text)).toBe(0);
+      },
+    );
+
+    it.each(['nobet ac', 'nobet baslat', 'nobet devam'])(
+      'treats %j as on',
+      (text) => {
+        expect(service.parseWatchArg(text)).toBe(-1);
+      },
+    );
+
+    it('returns NaN for a bare status query', () => {
+      expect(Number.isNaN(service.parseWatchArg('nobet'))).toBe(true);
+    });
+
+    it.each(['nobet bilmemne', 'nobet 30 ay', 'nobet cok sik'])(
+      'returns null for unparseable %j',
+      (text) => {
+        expect(service.parseWatchArg(text)).toBeNull();
+      },
+    );
+
+    // Kullanici Turkce karakterle yazar; normalize devrede olmali.
+    it('handles Turkish characters', () => {
+      expect(service.parseWatchArg('nöbet 30dk')).toBe(30);
+      expect(service.parseWatchArg('NÖBET 2 SAAT')).toBe(120);
+    });
+  });
+
+  describe('isWatchCommand', () => {
+    it.each(['nobet', 'nöbet 30dk', '/nobet kapat'])('matches %j', (text) => {
+      expect(service.isWatchCommand(text)).toBe(true);
+    });
+
+    it('does not match unrelated prose', () => {
+      expect(service.isWatchCommand('bu gece nöbetçi eczane hangisi')).toBe(
+        false,
+      );
+    });
+  });
+
+  describe('formatInterval', () => {
+    it.each([
+      [30, '30 dakika'],
+      [60, '1 saat'],
+      [120, '2 saat'],
+      [90, '90 dakika'],
+      [1440, '24 saat'],
+    ])('formats %i as %j', (mins, expected) => {
+      expect(service.formatInterval(mins)).toBe(expected);
+    });
+  });
 });

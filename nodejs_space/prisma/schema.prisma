@@ -48,10 +48,17 @@ model active_chats {
   created_at DateTime @default(now())
 }
 
-/// Per-chat balance backing the kill switch. Null balance = not yet reported.
+/// Per-chat balance and auto-scan schedule.
 model user_state {
   id           Int      @id @default(autoincrement())
   chat_id      String   @unique
+  /// Kill switch girdisi. Null = kullanici henuz bildirmedi.
   balance_usdt Float?
+  /// Otomatik nobet araligi (dakika). Kullanici Telegram'dan degistirir.
+  scan_interval_minutes Int @default(60)
+  /// "nobet kapat" ile false olur; aralik korunur.
+  scan_enabled Boolean @default(true)
+  /// Son otomatik tarama zamani — sirada olup olmadigi buradan hesaplanir.
+  last_scan_at DateTime?
   updated_at   DateTime @default(now()) @updatedAt
 }
