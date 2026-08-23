@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
 export interface CoinData {
@@ -81,6 +82,59 @@ interface BinanceTicker {
 @Injectable()
 export class MarketDataService {
   private readonly logger = new Logger(MarketDataService.name);
+
+  constructor(private readonly config: ConfigService) {}
+
+  /**
+   * Every CoinGecko call goes through here.
+   *
+   * Without a key the quota is per-IP, and on shared hosting that IP is shared
+   * with every other tenant — the bot hit a permanent 429 on Render while the
+   * same request succeeded from a home connection. A free Demo key moves the
+   * quota onto the key instead.
+   *
+   * Retries once on 429: the free tier is bursty, and a second attempt a
+   * moment later usually lands.
+   */
+  private async coingeckoGet<T = any>(
+    path: string,
+    params: Record<string, any> = {},
+    timeout = 20000,
+  ): Promise<T> {
+    const key = this.config.get<string>('COINGECKO_API_KEY');
+    const headers: Record<string, string> = key
+      ? { 'x-cg-demo-api-key': key }
+      : {};
+
+    const url = `https://api.coingecko.com/api/v3${path}`;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const resp = await axios.get<T>(url, { params, headers, timeout });
+        return resp.data;
+      } catch (error: any) {
+        const status = error?.response?.status;
+        const lastAttempt = attempt === 1;
+
+        if (status === 429 && !lastAttempt) {
+          this.logger.warn(`CoinGecko 429 on ${path}, retrying once`);
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
+        }
+        if (status === 429) {
+          this.logger.error(
+            `CoinGecko rate limit on ${path}. ` +
+              (key
+                ? 'Demo anahtar kotasi dolmus olabilir.'
+                : 'COINGECKO_API_KEY tanimli degil — paylasimli IP kotasi kullaniliyor.'),
+          );
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('unreachable');
+  }
   private cache: MarketOverview | null = null;
   private cacheExpiry = 0;
   /** Last fetch that actually produced coins — the stale fallback. */
@@ -220,12 +274,13 @@ export class MarketDataService {
   private async searchCoins(
     query: string,
   ): Promise<{ id: string; symbol: string; rank: number | null }[]> {
-    const resp = await axios.get('https://api.coingecko.com/api/v3/search', {
-      params: { query: query.trim() },
-      timeout: 15000,
-    });
+    const data = await this.coingeckoGet<any>(
+      '/search',
+      { query: query.trim() },
+      15000,
+    );
 
-    const coins = (resp.data?.coins ?? []) as any[];
+    const coins = (data?.coins ?? []) as any[];
     const wantedUpper = query.trim().toUpperCase();
     const wantedLower = query.trim().toLowerCase();
 
@@ -259,22 +314,14 @@ export class MarketDataService {
   private async fetchCoinDetail(
     id: string,
   ): Promise<Omit<CoinResearch, 'futuresPair' | 'alternatives'> | null> {
-    const resp = await axios.get(
-      `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}`,
-      {
-        params: {
-          localization: false,
-          tickers: false,
-          market_data: true,
-          community_data: false,
-          developer_data: false,
-          sparkline: false,
-        },
-        timeout: 20000,
-      },
-    );
-
-    const d = resp.data;
+    const d = await this.coingeckoGet<any>(`/coins/${encodeURIComponent(id)}`, {
+      localization: false,
+      tickers: false,
+      market_data: true,
+      community_data: false,
+      developer_data: false,
+      sparkline: false,
+    });
     const m = d?.market_data;
     if (!m) return null;
 
@@ -448,22 +495,16 @@ export class MarketDataService {
 
   /** Fallback feed, and the source of 1h change when Binance is primary. */
   private async fetchCoinGecko(): Promise<CoinData[]> {
-    const resp = await axios.get(
-      'https://api.coingecko.com/api/v3/coins/markets',
-      {
-        params: {
-          vs_currency: 'usd',
-          order: 'volume_desc',
-          per_page: 100,
-          page: 1,
-          sparkline: false,
-          price_change_percentage: '1h,24h',
-        },
-        timeout: 20000,
-      },
-    );
+    const data = await this.coingeckoGet<any[]>('/coins/markets', {
+      vs_currency: 'usd',
+      order: 'volume_desc',
+      per_page: 100,
+      page: 1,
+      sparkline: false,
+      price_change_percentage: '1h,24h',
+    });
 
-    return resp.data.map((c: any) => ({
+    return data.map((c: any) => ({
       symbol: String(c.symbol ?? '').toUpperCase(),
       pair: `${String(c.symbol ?? '').toUpperCase()}USDT`,
       name: c.name,

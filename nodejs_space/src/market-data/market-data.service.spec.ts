@@ -37,7 +37,7 @@ const failedSnapshot = (): MarketOverview => ({
 
 /** Replaces the HTTP layer so only the cache/fallback policy is under test. */
 function serviceWith(...responses: MarketOverview[]) {
-  const svc = new MarketDataService() as any;
+  const svc = new MarketDataService({ get: () => undefined } as any) as any;
   let i = 0;
   svc.fetchFreshData = () =>
     Promise.resolve(responses[Math.min(i++, responses.length - 1)]);
