@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   MarketDataService,
   MarketOverview,
+  CoinResearch,
 } from '../market-data/market-data.service';
 import axios from 'axios';
 
@@ -286,6 +287,195 @@ export class TradeEngineService {
       fetchedAt: market.fetchedAt,
       warnings: market.warnings,
     };
+  }
+
+  /**
+   * Research mode — "araştır PEPE".
+   *
+   * Discussion is not a signal, so the framing is deliberately looser than the
+   * scan path: the model is asked to weigh the project, not to hunt an entry.
+   * A trade card is still allowed, and when one comes back it goes through the
+   * exact same validateSignal gate as every other card. The safety layer sits
+   * on the signal, not on the conversation.
+   */
+  async analyzeCoin(
+    chatId: string,
+    research: CoinResearch,
+    userQuestion: string,
+  ): Promise<EngineResponse> {
+    const balance = await this.getBalance(chatId);
+
+    if (balance !== null && balance < MIN_BALANCE_USDT) {
+      // Research is still allowed while the kill switch is on — only the card
+      // is not. The model is told so it does not dangle an entry.
+      this.logger.log(`Research in kill-switch mode for ${chatId}`);
+    }
+
+    const [market, instructions] = await Promise.all([
+      this.marketData.getMarketData(),
+      this.getUserInstructions(chatId),
+    ]);
+
+    const killSwitchOn = balance !== null && balance < MIN_BALANCE_USDT;
+    const systemPrompt = this.buildResearchPrompt(
+      research,
+      market,
+      instructions,
+      balance,
+      killSwitchOn,
+    );
+
+    let raw: string;
+    try {
+      raw = await this.callLLM([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userQuestion },
+      ]);
+    } catch (error: any) {
+      return { text: this.describeLLMError(error), signal: null };
+    }
+
+    const parsed = this.parseResponse(raw);
+    if (!parsed.signal) return parsed;
+
+    if (killSwitchOn) {
+      return {
+        text:
+          `${parsed.text}\n\n` +
+          `🛑 Analizi yaptım ama işlem kartı vermiyorum: bakiyen ${balance} USDT, ` +
+          `${MIN_BALANCE_USDT} USDT sınırının altında.`,
+        signal: null,
+      };
+    }
+
+    const validation = this.validateSignal(parsed.signal, market, balance);
+    if (!validation.valid) {
+      this.logger.warn(`Research signal rejected: ${validation.reason}`);
+      return {
+        text:
+          `${parsed.text}\n\n` +
+          `⚠️ Bir işlem kartı önerdim ama güvenlik kontrolünden geçmedi:\n` +
+          `${validation.reason}\n\nO yüzden kartı vermiyorum.`,
+        signal: null,
+      };
+    }
+
+    return parsed;
+  }
+
+  private buildResearchPrompt(
+    r: CoinResearch,
+    market: MarketOverview,
+    instructions: string[],
+    balance: number | null,
+    killSwitchOn: boolean,
+  ): string {
+    const fmtBig = (n: number) =>
+      n >= 1e9
+        ? `$${(n / 1e9).toFixed(2)} Milyar`
+        : n >= 1e6
+          ? `$${(n / 1e6).toFixed(1)}M`
+          : `$${n.toFixed(0)}`;
+
+    const fmtSupply = (n: number | null) => {
+      if (n === null || n === 0) return 'bilinmiyor';
+      if (n >= 1e12) return `${(n / 1e12).toFixed(2)} Trilyon`;
+      if (n >= 1e9) return `${(n / 1e9).toFixed(2)} Milyar`;
+      if (n >= 1e6) return `${(n / 1e6).toFixed(2)} Milyon`;
+      return n.toFixed(0);
+    };
+
+    const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+    // Fully-circulating supply means no unlock overhang; a small float means
+    // the opposite. Worth stating rather than leaving the model to infer.
+    const floatNote =
+      r.totalSupply && r.circulatingSupply
+        ? r.circulatingSupply / r.totalSupply > 0.95
+          ? 'Arzın neredeyse tamamı dolaşımda — kilit açılımı baskısı düşük.'
+          : `Toplam arzın yalnızca %${((r.circulatingSupply / r.totalSupply) * 100).toFixed(0)}'i dolaşımda — ilerleyen dönemde kilit açılımı satış baskısı yaratabilir.`
+        : '';
+
+    const tradableNote = r.futuresPair
+      ? `Binance Futures'ta ${r.futuresPair} olarak işlem görüyor — işlem kartı verebilirsin.`
+      : `⚠️ Bu coin Binance Futures'ta İŞLEM GÖRMÜYOR. Kaldıraçlı işlem AÇILAMAZ. ` +
+        `İşlem kartı VERME, {"signal": false} dön ve kullanıcıya spot alım dışında ` +
+        `bu coine futures'tan giremeyeceğini söyle.`;
+
+    const altNote = r.alternatives.length
+      ? `\n\nNot: Bu isimle eşleşen başka coinler de var (${r.alternatives
+          .map((a) => `${a.symbol}${a.rank ? ` #${a.rank}` : ''}`)
+          .join(
+            ', ',
+          )}). Kullanıcı bunlardan birini kastettiyse belirtmesini iste.`
+      : '';
+
+    const balanceBlock = killSwitchOn
+      ? `💰 Kullanıcı bakiyesi ${balance} USDT — ${MIN_BALANCE_USDT} USDT sınırının ALTINDA. ` +
+        `Analiz yap ama işlem kartı VERME.`
+      : balance !== null
+        ? `💰 Kullanıcı bakiyesi: ${balance} USDT — margin ${(balance * MAX_POSITION_RATIO).toFixed(2)} USDT'yi geçemez.`
+        : `💰 Bakiye bildirilmemiş. Kart verirsen 100 USDT varsay ve "bakiye 100" yazmasını hatırlat.`;
+
+    const instructionsBlock = instructions.length
+      ? `\n\n🔒 KULLANICININ KALICI TALİMATLARI:\n${instructions.map((x, i) => `${i + 1}. ${x}`).join('\n')}`
+      : '';
+
+    return `Sen cesur ama disiplinli bir Türk kripto trader'ısın. Şu an ARAŞTIRMA MODUNDASIN.
+
+Kullanıcı belirli bir coin hakkında konuşmak, öğrenmek ve fikrini almak istiyor.
+Bu bir tarama değil — zorla fırsat bulmak zorunda değilsin. Dürüst ol:
+coin çöpse çöp de, riskliyse riskini söyle, güzelse güzel de.
+
+📊 ${r.name} (${r.symbol})${r.marketCapRank ? ` — piyasa değeri sıralaması #${r.marketCapRank}` : ''}
+
+Fiyat        : $${r.price}
+Piyasa değeri: ${fmtBig(r.marketCap)}
+24s hacim    : ${fmtBig(r.volume24h)}
+Değişim      : 24s ${pct(r.change24h)} | 7g ${pct(r.change7d)} | 30g ${pct(r.change30d)}
+ATH          : $${r.ath} (şu an ATH'den ${pct(r.athChangePct)} uzakta)
+Dolaşan arz  : ${fmtSupply(r.circulatingSupply)}
+Toplam arz   : ${fmtSupply(r.totalSupply)}
+Maks arz     : ${fmtSupply(r.maxSupply)}
+Kategoriler  : ${r.categories.join(', ') || 'belirtilmemiş'}
+${r.homepage ? `Site         : ${r.homepage}` : ''}
+
+Proje açıklaması:
+${r.description || '(açıklama yok)'}
+
+${floatNote}
+${tradableNote}${altNote}
+
+🌍 GENEL PİYASA: BTC ${market.btc ? `$${this.fmtPrice(market.btc.current_price)}` : 'bilinmiyor'}, Fear & Greed ${market.fearGreed?.value ?? '?'}
+
+${balanceBlock}
+
+📝 NASIL CEVAP VER:
+1. Coin ne işe yarıyor, gerçek bir projesi mi var yoksa meme mi — açıkça söyle
+2. Sayılardan ne okuyorsun: hacim/piyasa değeri oranı, ATH mesafesi, arz durumu
+3. Riskler — meme coin riski, düşük hacim, kilit açılımı, aşırı ısınma
+4. Net görüş: şu an yatırım/işlem için mantıklı mı, değilse neden
+
+🚫 DEMİR KURALLAR (işlem kartı verirsen geçerli):
+1. Stop-loss VE take-profit ZORUNLU
+2. SADECE ISOLATED margin
+3. Kaldıraç ${MIN_LEVERAGE}x-${MAX_LEVERAGE}x
+4. Margin, bakiyenin en fazla %${MAX_POSITION_RATIO * 100}'si
+5. LONG ise stopLoss < entry < takeProfit — SHORT ise takeProfit < entry < stopLoss
+6. Emin değilsen kart VERME, sadece yorumunu yaz
+${instructionsBlock}
+
+İşlem kartı vermek istersen cevabına şu JSON'u ekle (fiyatları sayı olarak yaz):
+\`\`\`json
+{"signal": true, "pair": "${r.futuresPair ?? 'YOK'}", "direction": "LONG", "leverage": "3x", "margin": "20 USDT", "entry": "0", "stopLoss": "0", "takeProfit": "0", "potentialGain": "+X USDT", "confidence": 6, "reason": "kısa gerekçe"}
+\`\`\`
+
+Kart vermeyeceksen:
+\`\`\`json
+{"signal": false}
+\`\`\`
+
+Türkçe, enerjik ama dürüst konuş. Sohbet ediyoruz — sinyal makinesi değilsin.`;
   }
 
   private buildSystemPrompt(
@@ -604,13 +794,15 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       }
     }
 
-    // When the pair list is authoritative, refuse anything not on it.
-    if (market?.source === 'binance' && market.top50.length > 0) {
-      const tradable = market.top50.some((c) => c.pair === signal.pair);
-      if (!tradable) {
+    // Tradability, not popularity: the check is whether Binance Futures lists
+    // the pair at all. Requiring top-50 volume rank used to reject perfectly
+    // tradable coins, which blocked research on anything outside the busiest
+    // fifty.
+    if (market?.source === 'binance' && market.tradablePairs.length > 0) {
+      if (!market.tradablePairs.includes(signal.pair)) {
         return {
           valid: false,
-          reason: `${signal.pair} hacme göre top 50 Binance Futures listesinde yok.`,
+          reason: `${signal.pair} Binance Futures'ta işlem görmüyor.`,
         };
       }
     }

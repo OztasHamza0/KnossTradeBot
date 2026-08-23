@@ -36,6 +36,7 @@ const binanceMarket = (pairs: string[]): MarketOverview => ({
   fearGreed: null,
   fetchedAt: 0,
   source: 'binance',
+  tradablePairs: pairs,
   warnings: [],
 });
 
@@ -154,6 +155,20 @@ describe('TradeEngineService', () => {
     it('accepts a pair present in the Binance Futures list', () => {
       const market = binanceMarket(['BTCUSDT', 'ETHUSDT']);
       expect(service.validateSignal(baseSignal(), market).valid).toBe(true);
+    });
+
+    // Arastirma modu top 50 disindaki coinlere de bakabiliyor; kabul olcutu
+    // hacim sirasi degil, Binance Futures'ta listeleniyor olmak.
+    it('accepts a tradable pair that is outside the top 50 by volume', () => {
+      const market = binanceMarket(['BTCUSDT', 'ETHUSDT', '1000PEPEUSDT']);
+      market.top50 = market.top50.slice(0, 2); // 1000PEPE hacim listesinde yok
+      const signal = baseSignal({
+        pair: '1000PEPEUSDT',
+        entry: '0.0000040',
+        stopLoss: '0.0000036',
+        takeProfit: '0.0000048',
+      });
+      expect(service.validateSignal(signal, market).valid).toBe(true);
     });
   });
 

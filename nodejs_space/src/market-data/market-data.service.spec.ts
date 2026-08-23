@@ -19,6 +19,7 @@ const goodSnapshot = (fetchedAt = Date.now()): MarketOverview => ({
   fearGreed: { value: 50, classification: 'Neutral' },
   fetchedAt,
   source: 'binance',
+  tradablePairs: ['BTCUSDT', 'ETHUSDT'],
   warnings: [],
 });
 
@@ -30,6 +31,7 @@ const failedSnapshot = (): MarketOverview => ({
   fearGreed: null,
   fetchedAt: Date.now(),
   source: 'none',
+  tradablePairs: [],
   warnings: ['HICBIR piyasa verisi alinamadi.'],
 });
 

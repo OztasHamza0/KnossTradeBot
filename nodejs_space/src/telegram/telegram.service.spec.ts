@@ -240,4 +240,94 @@ describe('TelegramService command routing', () => {
       expect(service.isWatchCommand('nobet test')).toBe(true);
     });
   });
+
+  describe('arastirma komutu', () => {
+    it.each([
+      'arastir PEPE',
+      'araştır PEPE',
+      'incele SOL',
+      'analiz bonk',
+      '/arastir bitcoin',
+      'ARAŞTIR pepe',
+    ])('matches %j', (text) => {
+      expect(service.isResearchCommand(text)).toBe(true);
+    });
+
+    // Fiil sart: cıplak coin adi normal sohbeti kacirirdi.
+    it.each(['PEPE', 'BTC nasil', 'arastir', 'incele', 'bugun ne var'])(
+      'does not match %j',
+      (text) => {
+        expect(service.isResearchCommand(text)).toBe(false);
+      },
+    );
+
+    it.each([
+      ['arastir PEPE', 'PEPE'],
+      ['araştır pepe', 'pepe'],
+      ['incele SOL', 'SOL'],
+      ['/analiz bonk', 'bonk'],
+      ['araştır PEPE coinini', 'PEPE'],
+      ['incele SHIB token', 'SHIB'],
+      ['araştır bitcoin?', 'bitcoin'],
+    ])('parses %j to %j', (text, expected) => {
+      expect(service.parseResearchQuery(text)).toBe(expected);
+    });
+
+    it('returns null when no coin was named', () => {
+      expect(service.parseResearchQuery('arastir')).toBeNull();
+      expect(service.parseResearchQuery('merhaba')).toBeNull();
+    });
+
+    it('rejects an absurdly long query', () => {
+      expect(
+        service.parseResearchQuery('arastir ' + 'x'.repeat(60)),
+      ).toBeNull();
+    });
+  });
+
+  describe('formatResearchCard', () => {
+    const base = {
+      id: 'pepe',
+      name: 'Pepe',
+      symbol: 'PEPE',
+      marketCapRank: 51,
+      price: 0.00000398,
+      marketCap: 1_672_700_000,
+      volume24h: 613_900_000,
+      change24h: -1.87,
+      change7d: 52.65,
+      change30d: 42.41,
+      ath: 0.00002803,
+      athChangePct: -85.8,
+      circulatingSupply: 420_690_000_000_000,
+      totalSupply: 420_690_000_000_000,
+      maxSupply: null,
+      categories: ['Meme'],
+      description: 'meme token',
+      homepage: null,
+      futuresPair: '1000PEPEUSDT',
+      alternatives: [],
+    };
+
+    it('shows the tradable pair when the coin is on futures', () => {
+      const card = service.formatResearchCard(base);
+      expect(card).toContain('1000PEPEUSDT');
+      expect(card).toContain('Pepe (PEPE)');
+      expect(card).toContain('#51');
+    });
+
+    it('warns clearly when the coin is not on futures', () => {
+      const card = service.formatResearchCard({ ...base, futuresPair: null });
+      expect(card).toContain('Binance Futures');
+      expect(card).toContain('kaldıraçlı işlem açılamaz');
+    });
+
+    it('offers the alternatives when the name was ambiguous', () => {
+      const card = service.formatResearchCard({
+        ...base,
+        alternatives: [{ id: 'apepe', symbol: 'APEPE', rank: 144 }],
+      });
+      expect(card).toContain('APEPE');
+    });
+  });
 });

@@ -27,7 +27,39 @@ export interface MarketOverview {
   fetchedAt: number;
   /** Which feed produced top50 — the LLM is told, so it never invents pairs */
   source: MarketSource;
+  /**
+   * Every USDT perpetual on Binance Futures, not just the top 50. Tradability
+   * and volume rank are different questions: a coin can be perfectly tradable
+   * while sitting outside the busiest fifty.
+   */
+  tradablePairs: string[];
   warnings: string[];
+}
+
+/** Tek bir coin icin derin arastirma verisi — "arastir PEPE" komutu kullanir. */
+export interface CoinResearch {
+  id: string;
+  name: string;
+  symbol: string;
+  marketCapRank: number | null;
+  price: number;
+  marketCap: number;
+  volume24h: number;
+  change24h: number;
+  change7d: number;
+  change30d: number;
+  ath: number;
+  athChangePct: number;
+  circulatingSupply: number;
+  totalSupply: number | null;
+  maxSupply: number | null;
+  categories: string[];
+  description: string;
+  homepage: string | null;
+  /** Binance Futures paritesi (varsa) — yoksa bu coin futures'ta islem gormez. */
+  futuresPair: string | null;
+  /** Ayni sorguya uyan diger coinler; kullanici yanlis coini kastetmis olabilir. */
+  alternatives: { id: string; symbol: string; rank: number | null }[];
 }
 
 interface BinanceTicker {
@@ -78,6 +110,18 @@ export class MarketDataService {
   /** Leveraged tokens and index products — never valid futures entries */
   private readonly EXCLUDED = /(UPUSDT|DOWNUSDT|BULLUSDT|BEARUSDT)$/;
 
+  /**
+   * Per-coin research cache. Each lookup costs two CoinGecko calls and the
+   * free tier rate-limits quickly, so asking about the same coin twice in a
+   * conversation must not spend the budget twice. Fundamentals barely move in
+   * ten minutes; the price shown alongside is refreshed by the market feed.
+   */
+  private readonly researchCache = new Map<
+    string,
+    { data: CoinResearch; expiry: number }
+  >();
+  private readonly RESEARCH_TTL = 10 * 60 * 1000;
+
   async getMarketData(): Promise<MarketOverview> {
     if (this.cache && Date.now() < this.cacheExpiry) {
       return this.cache;
@@ -125,6 +169,163 @@ export class MarketDataService {
     return fresh;
   }
 
+  /**
+   * Deep data for a single coin — the "araştır PEPE" path.
+   *
+   * The top-50 feed only covers the busiest pairs, so anything the user asks
+   * about outside that set would otherwise reach the model with no numbers at
+   * all. This fetches the coin directly instead.
+   *
+   * Returns null when the name matches nothing.
+   */
+  async researchCoin(query: string): Promise<CoinResearch | null> {
+    const key = query.trim().toLowerCase();
+    const hit = this.researchCache.get(key);
+    if (hit && Date.now() < hit.expiry) {
+      this.logger.debug(`Research cache hit for "${key}"`);
+      return hit.data;
+    }
+
+    const matches = await this.searchCoins(query);
+    if (matches.length === 0) return null;
+
+    const best = matches[0];
+    const detail = await this.fetchCoinDetail(best.id);
+    if (!detail) return null;
+
+    const research: CoinResearch = {
+      ...detail,
+      futuresPair: await this.findFuturesPair(detail.symbol),
+      alternatives: matches.slice(1, 4),
+    };
+
+    this.researchCache.set(key, {
+      data: research,
+      expiry: Date.now() + this.RESEARCH_TTL,
+    });
+    // Unbounded growth would be a slow leak in a long-lived process.
+    if (this.researchCache.size > 200) {
+      const oldest = this.researchCache.keys().next().value;
+      if (oldest) this.researchCache.delete(oldest);
+    }
+
+    return research;
+  }
+
+  /**
+   * Ranked name/symbol matches. CoinGecko returns meme forks and copycats
+   * ahead of the real coin often enough that ranking by market cap matters —
+   * an unranked token sorts last rather than first.
+   */
+  private async searchCoins(
+    query: string,
+  ): Promise<{ id: string; symbol: string; rank: number | null }[]> {
+    const resp = await axios.get('https://api.coingecko.com/api/v3/search', {
+      params: { query: query.trim() },
+      timeout: 15000,
+    });
+
+    const coins = (resp.data?.coins ?? []) as any[];
+    const wantedUpper = query.trim().toUpperCase();
+    const wantedLower = query.trim().toLowerCase();
+
+    /**
+     * Id match outranks symbol match. Copycats routinely take a famous name as
+     * their *symbol* — there is a meme token whose symbol is literally
+     * "BITCOIN", and ranking by symbol alone returned it for "bitcoin" ahead
+     * of Bitcoin itself (whose symbol is BTC and whose id is "bitcoin").
+     */
+    const score = (c: { id: string; symbol: string }) => {
+      if (c.id.toLowerCase() === wantedLower) return 0;
+      if (c.symbol === wantedUpper) return 1;
+      return 2;
+    };
+
+    return coins
+      .map((c) => ({
+        id: String(c.id),
+        symbol: String(c.symbol ?? '').toUpperCase(),
+        rank: (c.market_cap_rank as number) ?? null,
+      }))
+      .sort((a, b) => {
+        const diff = score(a) - score(b);
+        if (diff !== 0) return diff;
+        // Unranked tokens sort last rather than first.
+        return (a.rank ?? 99999) - (b.rank ?? 99999);
+      })
+      .slice(0, 5);
+  }
+
+  private async fetchCoinDetail(
+    id: string,
+  ): Promise<Omit<CoinResearch, 'futuresPair' | 'alternatives'> | null> {
+    const resp = await axios.get(
+      `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}`,
+      {
+        params: {
+          localization: false,
+          tickers: false,
+          market_data: true,
+          community_data: false,
+          developer_data: false,
+          sparkline: false,
+        },
+        timeout: 20000,
+      },
+    );
+
+    const d = resp.data;
+    const m = d?.market_data;
+    if (!m) return null;
+
+    return {
+      id: String(d.id),
+      name: String(d.name),
+      symbol: String(d.symbol ?? '').toUpperCase(),
+      marketCapRank: d.market_cap_rank ?? null,
+      price: m.current_price?.usd ?? 0,
+      marketCap: m.market_cap?.usd ?? 0,
+      volume24h: m.total_volume?.usd ?? 0,
+      change24h: m.price_change_percentage_24h ?? 0,
+      change7d: m.price_change_percentage_7d ?? 0,
+      change30d: m.price_change_percentage_30d ?? 0,
+      ath: m.ath?.usd ?? 0,
+      athChangePct: m.ath_change_percentage?.usd ?? 0,
+      circulatingSupply: m.circulating_supply ?? 0,
+      totalSupply: m.total_supply ?? null,
+      maxSupply: m.max_supply ?? null,
+      categories: (d.categories ?? []).filter(Boolean).slice(0, 6),
+      // Plain text only; the description carries HTML links.
+      description: String(d.description?.en ?? '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 700),
+      homepage: d.links?.homepage?.[0] || null,
+    };
+  }
+
+  /**
+   * Maps a CoinGecko symbol to its Binance Futures pair.
+   *
+   * Binance quotes very cheap tokens in multiples so the tick size stays
+   * usable — PEPE trades as 1000PEPEUSDT, SHIB as 1000SHIBUSDT. Checking the
+   * bare symbol alone would wrongly report those as untradable.
+   */
+  private async findFuturesPair(symbol: string): Promise<string | null> {
+    const market = await this.getMarketData();
+    if (market.tradablePairs.length === 0) return null;
+
+    const candidates = [
+      `${symbol}USDT`,
+      `1000${symbol}USDT`,
+      `10000${symbol}USDT`,
+      `1000000${symbol}USDT`,
+    ];
+
+    return candidates.find((c) => market.tradablePairs.includes(c)) ?? null;
+  }
+
   private async fetchFreshData(): Promise<MarketOverview> {
     const [binanceResult, geckoResult, fgResult] = await Promise.allSettled([
       this.fetchBinanceFutures(),
@@ -163,9 +364,12 @@ export class MarketDataService {
     let top50: CoinData[];
     let source: MarketSource;
 
+    // Tradability is decided by the full list; the prompt only carries 50.
+    const tradablePairs = binance.map((b) => b.pair);
+
     if (binance.length > 0) {
       source = 'binance';
-      top50 = binance.map((b) => {
+      top50 = binance.slice(0, 50).map((b) => {
         const g = geckoBySymbol.get(b.symbol);
         return {
           ...b,
@@ -194,13 +398,14 @@ export class MarketDataService {
       fearGreed,
       fetchedAt: Date.now(),
       source,
+      tradablePairs,
       warnings,
     };
   }
 
   /**
-   * Top 50 USDT-margined perpetuals by 24h quote volume.
-   * One bulk request covers every symbol.
+   * Every USDT-margined perpetual, sorted by 24h quote volume.
+   * One bulk request covers every symbol; the caller decides how many to keep.
    */
   private async fetchBinanceFutures(): Promise<CoinData[]> {
     let lastError: any;
@@ -231,8 +436,7 @@ export class MarketDataService {
           .filter(
             (c) => Number.isFinite(c.current_price) && c.current_price > 0,
           )
-          .sort((a, b) => b.total_volume - a.total_volume)
-          .slice(0, 50);
+          .sort((a, b) => b.total_volume - a.total_volume);
       } catch (error: any) {
         lastError = error;
         this.logger.warn(`Binance host ${host} failed: ${error?.message}`);

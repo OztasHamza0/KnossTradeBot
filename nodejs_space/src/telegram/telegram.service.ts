@@ -7,7 +7,10 @@ import {
   EngineResponse,
   MIN_BALANCE_USDT,
 } from '../trade-engine/trade-engine.service';
-import { MarketDataService } from '../market-data/market-data.service';
+import {
+  MarketDataService,
+  CoinResearch,
+} from '../market-data/market-data.service';
 import {
   MIN_SCAN_INTERVAL,
   MAX_SCAN_INTERVAL,
@@ -66,6 +69,8 @@ export class TelegramService {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
       } else if (this.isWatchCommand(text)) {
         await this.handleWatch(chatId, text);
+      } else if (this.isResearchCommand(text)) {
+        await this.handleResearch(chatId, text);
       } else if (this.isRulesCommand(text)) {
         await this.handleShowRules(chatId);
       } else if (this.isDeleteRuleCommand(text)) {
@@ -189,6 +194,7 @@ export class TelegramService {
 • "nöbet 30dk" → Otomatik tarama aralığını değiştir
 • "nöbet kapat" → Otomatik taramayı durdur
 • "nöbet test" → Nöbeti şimdi çalıştır, sonucu raporla
+• "araştır PEPE" → Bir coini derinlemesine incele
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
@@ -249,6 +255,122 @@ değiştirebilir, "nöbet kapat" ile durdurabilirsin.
             `📏 Bundan sonra margin üst sınırın: ${maxMargin} USDT (bakiyenin %50'si)\n\n` +
             `Hazırız! "tara" yazıp başlayalım 💪`,
     );
+  }
+
+  /**
+   * "araştır PEPE", "incele SOL", "/arastir bonk"
+   *
+   * Deliberately requires a verb: a bare coin name would collide with ordinary
+   * chat ("BTC bugün nasıl") and hijack it into a research fetch.
+   */
+  isResearchCommand(text: string): boolean {
+    return /^(?:\/)?(arastir|arastır|incele|analiz|arastirma)\s+\S+/.test(
+      this.normalize(text),
+    );
+  }
+
+  /** Returns the coin name the user asked about, or null. */
+  parseResearchQuery(text: string): string | null {
+    const m = text
+      .trim()
+      .match(/^(?:\/)?(?:ara[sş]t[iı]r(?:ma)?|incele|analiz)\s+(.+)$/i);
+    if (!m) return null;
+
+    const query = m[1]
+      // "PEPE coinini araştır" gibi eklerden arındır
+      .replace(/\b(coin|coini|coinini|token|tokeni|hakkinda|hakkında)\b/gi, '')
+      .replace(/[?!.]+$/, '')
+      .trim();
+
+    return query.length > 0 && query.length <= 40 ? query : null;
+  }
+
+  private async handleResearch(chatId: string, text: string): Promise<void> {
+    const query = this.parseResearchQuery(text);
+    if (!query) {
+      await this.sendMessage(
+        chatId,
+        `❓ Hangi coini araştırayım?\n\nÖrnek: "araştır PEPE" · "incele SOL"`,
+      );
+      return;
+    }
+
+    await this.sendMessage(
+      chatId,
+      `🔬 ${query.toUpperCase()} araştırılıyor... Veri topluyorum, biraz sürebilir. ⏳`,
+    );
+
+    let research: Awaited<ReturnType<MarketDataService['researchCoin']>>;
+    try {
+      research = await this.marketData.researchCoin(query);
+    } catch (error: any) {
+      const status = error?.response?.status;
+      this.logger.error(
+        `researchCoin failed for "${query}" (${status}): ${error?.message}`,
+      );
+      await this.sendMessage(
+        chatId,
+        status === 429
+          ? '⏳ CoinGecko hız limitine takıldık (ücretsiz katman). Bir dakika bekleyip tekrar dene.'
+          : '❌ Coin verisi çekilemedi. Birazdan tekrar dene.',
+      );
+      return;
+    }
+
+    if (!research) {
+      await this.sendMessage(
+        chatId,
+        `🤷 "${query}" diye bir coin bulamadım.\n\n` +
+          `Sembolünü ya da tam adını yazmayı dene: "araştır PEPE", "araştır bitcoin"`,
+      );
+      return;
+    }
+
+    await this.saveChatMessage(chatId, 'user', `[Araştırma] ${query}`);
+
+    const result = await this.tradeEngine.analyzeCoin(
+      chatId,
+      research,
+      `${query} adlı coini araştır ve incele. Yatırım/işlem için mantıklı mı, ` +
+        `dürüstçe değerlendir. Riskleri de söyle.`,
+    );
+
+    // Ham veriyi ayrica gonderiyoruz: modelin yorumu degisebilir ama
+    // sayilar sabit kalir ve kullanici kendi karsilastirmasini yapabilir.
+    await this.sendMessage(chatId, this.formatResearchCard(research));
+    await this.deliverResult(chatId, result);
+  }
+
+  formatResearchCard(r: CoinResearch): string {
+    const big = (n: number) =>
+      n >= 1e9
+        ? `$${(n / 1e9).toFixed(2)}Mr`
+        : n >= 1e6
+          ? `$${(n / 1e6).toFixed(1)}M`
+          : `$${n.toFixed(0)}`;
+    const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+    const supply = (n: number | null) => {
+      if (!n) return '—';
+      if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
+      if (n >= 1e9) return `${(n / 1e9).toFixed(2)}Mr`;
+      if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+      return String(Math.round(n));
+    };
+
+    return `🔬 ${r.name} (${r.symbol})${r.marketCapRank ? ` · #${r.marketCapRank}` : ''}
+
+💵 Fiyat: $${r.price}
+🏦 Piyasa değeri: ${big(r.marketCap)}
+📊 24s hacim: ${big(r.volume24h)}
+📈 24s ${pct(r.change24h)} · 7g ${pct(r.change7d)} · 30g ${pct(r.change30d)}
+🔝 ATH: $${r.ath} (${pct(r.athChangePct)} uzakta)
+🪙 Dolaşan: ${supply(r.circulatingSupply)} / Toplam: ${supply(r.totalSupply)}
+🏷️ ${r.categories.slice(0, 4).join(', ') || 'kategori yok'}
+${r.futuresPair ? `✅ Binance Futures: ${r.futuresPair}` : "⛔ Binance Futures'ta yok — kaldıraçlı işlem açılamaz"}${
+      r.alternatives.length
+        ? `\n\n❓ Bunu mu kastettin? Başka eşleşmeler: ${r.alternatives.map((a) => a.symbol).join(', ')}`
+        : ''
+    }`;
   }
 
   isWatchTestCommand(text: string): boolean {
