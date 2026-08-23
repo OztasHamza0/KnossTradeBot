@@ -60,5 +60,9 @@ model user_state {
   scan_enabled Boolean @default(true)
   /// Son otomatik tarama zamani — sirada olup olmadigi buradan hesaplanir.
   last_scan_at DateTime?
+  /// Sessiz saat araligi (yerel saat, 0-23). Null ise sessiz saat yok.
+  /// quiet_start > quiet_end ise aralik gece yarisini asar (orn 23-07).
+  quiet_start  Int?
+  quiet_end    Int?
   updated_at   DateTime @default(now()) @updatedAt
 }

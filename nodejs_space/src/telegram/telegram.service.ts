@@ -18,6 +18,13 @@ import {
 } from '../auto-scan/auto-scan.constants';
 import axios from 'axios';
 
+/** "sessiz" komutunun ayristirilmis hali. */
+type QuietArg =
+  | { kind: 'show' }
+  | { kind: 'off' }
+  | { kind: 'set'; start: number; end: number }
+  | { kind: 'invalid' };
+
 /** Telegram hard-caps a single sendMessage body at 4096 characters. */
 const TELEGRAM_MAX_LEN = 4096;
 
@@ -69,6 +76,8 @@ export class TelegramService {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
       } else if (this.isWatchCommand(text)) {
         await this.handleWatch(chatId, text);
+      } else if (this.isQuietCommand(text)) {
+        await this.handleQuiet(chatId, text);
       } else if (this.isResearchCommand(text)) {
         await this.handleResearch(chatId, text);
       } else if (this.isRulesCommand(text)) {
@@ -195,6 +204,7 @@ export class TelegramService {
 • "nöbet kapat" → Otomatik taramayı durdur
 • "nöbet test" → Nöbeti şimdi çalıştır, sonucu raporla
 • "araştır PEPE" → Bir coini derinlemesine incele
+• "sessiz 00-08" → Uyurken tarama yapma
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
@@ -371,6 +381,124 @@ ${r.futuresPair ? `✅ Binance Futures: ${r.futuresPair}` : "⛔ Binance Futures
         ? `\n\n❓ Bunu mu kastettin? Başka eşleşmeler: ${r.alternatives.map((a) => a.symbol).join(', ')}`
         : ''
     }`;
+  }
+
+  isQuietCommand(text: string): boolean {
+    return /^(?:\/)?sessiz\b/.test(this.normalize(text));
+  }
+
+  /**
+   * "sessiz"        -> mevcut ayari goster
+   * "sessiz 00-08"  -> gece yarisindan 08'e
+   * "sessiz 23-07"  -> gece yarisini asar
+   * "sessiz kapat"  -> sessiz saat yok
+   */
+  parseQuietArg(text: string): QuietArg {
+    const arg = this.normalize(text)
+      .replace(/^(?:\/)?sessiz\s*/, '')
+      .trim();
+
+    if (!arg) return { kind: 'show' };
+    if (/^(kapat|kapali|iptal|yok|off)$/.test(arg)) return { kind: 'off' };
+
+    // "00-08", "0 - 8", "23:00-07:00", "00.00 ile 08.00"
+    const m = arg.match(
+      /^(\d{1,2})(?:[:.]\d{2})?\s*(?:-|–|—|ile|\/)\s*(\d{1,2})(?:[:.]\d{2})?$/,
+    );
+    if (!m) return { kind: 'invalid' };
+
+    const start = parseInt(m[1], 10);
+    const end = parseInt(m[2], 10);
+    if (start > 23 || end > 23) return { kind: 'invalid' };
+
+    return { kind: 'set', start, end };
+  }
+
+  private async handleQuiet(chatId: string, text: string): Promise<void> {
+    const arg = this.parseQuietArg(text);
+
+    if (arg.kind === 'invalid') {
+      await this.sendMessage(
+        chatId,
+        `❓ Anlamadım. Örnekler:
+• "sessiz 00-08" → gece yarısı ile 08:00 arası tarama yok
+• "sessiz 23-07" → gece yarısını aşan aralık da olur
+• "sessiz kapat" → sessiz saati kaldır
+• "sessiz" → mevcut ayarı göster`,
+      );
+      return;
+    }
+
+    // Argümansız → durumu göster
+    if (arg.kind === 'show') {
+      const st = await this.prisma.user_state.findUnique({
+        where: { chat_id: chatId },
+      });
+      await this.sendMessage(
+        chatId,
+        st?.quiet_start === null ||
+          st?.quiet_start === undefined ||
+          st?.quiet_end === null
+          ? `🔔 Sessiz saat ayarlı değil — nöbet 24 saat çalışıyor.
+
+Ayarlamak için: "sessiz 00-08"`
+          : `🌙 Sessiz saat: ${this.fmtHour(st.quiet_start)} - ${this.fmtHour(st.quiet_end)}
+Bu aralıkta otomatik tarama yapılmıyor.
+
+Kaldırmak için: "sessiz kapat"`,
+      );
+      return;
+    }
+
+    if (arg.kind === 'off') {
+      await this.prisma.user_state.upsert({
+        where: { chat_id: chatId },
+        update: { quiet_start: null, quiet_end: null },
+        create: { chat_id: chatId },
+      });
+      await this.sendMessage(
+        chatId,
+        '🔔 Sessiz saat kaldırıldı. Nöbet artık 24 saat çalışacak.',
+      );
+      return;
+    }
+
+    const { start, end } = arg;
+    if (start === end) {
+      await this.sendMessage(
+        chatId,
+        '❌ Başlangıç ve bitiş aynı olamaz. Örnek: "sessiz 00-08"',
+      );
+      return;
+    }
+
+    await this.prisma.user_state.upsert({
+      where: { chat_id: chatId },
+      update: { quiet_start: start, quiet_end: end },
+      create: { chat_id: chatId, quiet_start: start, quiet_end: end },
+    });
+
+    const hours = start < end ? end - start : 24 - start + end;
+    const st = await this.prisma.user_state.findUnique({
+      where: { chat_id: chatId },
+    });
+    const interval = st?.scan_interval_minutes ?? 60;
+    const saved = Math.round((hours * 60) / interval);
+
+    await this.sendMessage(
+      chatId,
+      `🌙 Sessiz saat ayarlandı: ${this.fmtHour(start)} - ${this.fmtHour(end)}
+
+Bu ${hours} saat boyunca otomatik tarama yapmayacağım.
+Mevcut ${interval} dakikalık aralıkla günde ~${saved} tarama tasarrufu.
+
+Not: Sessiz saatte de "tara", "araştır" ve "nöbet test" çalışır — sadece
+sen yazmadan gelen taramalar durur.`,
+    );
+  }
+
+  private fmtHour(h: number): string {
+    return `${String(h).padStart(2, '0')}:00`;
   }
 
   isWatchTestCommand(text: string): boolean {

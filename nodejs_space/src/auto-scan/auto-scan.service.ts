@@ -31,6 +31,44 @@ export class AutoScanService {
   }
 
   /**
+   * Local hour in the bot's timezone, read explicitly rather than via the
+   * container's TZ so the behaviour does not silently change with the host.
+   */
+  currentHour(now = new Date()): number {
+    const tz = this.config.get<string>('BOT_TIMEZONE') ?? 'Europe/Istanbul';
+    try {
+      return parseInt(
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          hour: 'numeric',
+          hourCycle: 'h23',
+        }).format(now),
+        10,
+      );
+    } catch {
+      this.logger.warn(`Gecersiz BOT_TIMEZONE "${tz}", UTC kullaniliyor`);
+      return now.getUTCHours();
+    }
+  }
+
+  /**
+   * Quiet hours are a per-chat window in which the watch stays silent.
+   * The window may wrap past midnight — 23-07 is a normal way to say
+   * "overnight", so a plain start<=h<end comparison would be wrong.
+   */
+  isQuietNow(
+    start: number | null,
+    end: number | null,
+    hour = this.currentHour(),
+  ): boolean {
+    if (start === null || end === null) return false;
+    if (start === end) return false; // sifir uzunlukta pencere
+    return start < end
+      ? hour >= start && hour < end
+      : hour >= start || hour < end;
+  }
+
+  /**
    * Atomically claims the chats whose interval has elapsed.
    *
    * The claim is the same UPDATE that stamps last_scan_at, so two processes
@@ -61,8 +99,26 @@ export class AutoScanService {
       });
     }
 
+    // Quiet hours are filtered here rather than in the claim SQL: the window
+    // is timezone-dependent, and doing it in JS keeps it readable and
+    // testable. Both instances filter identically, so the claim below still
+    // decides who scans.
+    const states = await this.prisma.user_state.findMany({
+      where: { chat_id: { in: chats.map((c) => c.chat_id) } },
+      select: { chat_id: true, quiet_start: true, quiet_end: true },
+    });
+    const quiet = new Set(
+      states
+        .filter((st) => this.isQuietNow(st.quiet_start, st.quiet_end))
+        .map((st) => st.chat_id),
+    );
+    if (quiet.size > 0) {
+      this.logger.log(`${quiet.size} sohbet sessiz saatte, atlaniyor`);
+    }
+
     const claimed: string[] = [];
     for (const { chat_id } of chats) {
+      if (quiet.has(chat_id)) continue;
       const rows = await this.prisma.$executeRaw`
         UPDATE user_state
         SET last_scan_at = NOW()

@@ -330,4 +330,46 @@ describe('TelegramService command routing', () => {
       expect(card).toContain('APEPE');
     });
   });
+
+  describe('sessiz saat komutu', () => {
+    it.each(['sessiz', 'sessiz 00-08', 'SESSIZ kapat', '/sessiz 23-07'])(
+      'matches %j',
+      (text) => {
+        expect(service.isQuietCommand(text)).toBe(true);
+      },
+    );
+
+    it('does not match unrelated prose', () => {
+      expect(service.isQuietCommand('sessizlik altindir')).toBe(false);
+    });
+
+    it('treats a bare command as a status query', () => {
+      expect(service.parseQuietArg('sessiz').kind).toBe('show');
+    });
+
+    it.each(['sessiz kapat', 'sessiz iptal', 'sessiz yok'])(
+      'treats %j as off',
+      (text) => {
+        expect(service.parseQuietArg(text).kind).toBe('off');
+      },
+    );
+
+    it.each([
+      ['sessiz 00-08', 0, 8],
+      ['sessiz 0-8', 0, 8],
+      ['sessiz 23-07', 23, 7],
+      ['sessiz 23:00-07:00', 23, 7],
+      ['sessiz 1 - 9', 1, 9],
+      ['sessiz 22 ile 06', 22, 6],
+    ])('parses %j to %i-%i', (text, start, end) => {
+      expect(service.parseQuietArg(text)).toEqual({ kind: 'set', start, end });
+    });
+
+    it.each(['sessiz 25-08', 'sessiz 00-30', 'sessiz bilmemne', 'sessiz 5'])(
+      'rejects %j',
+      (text) => {
+        expect(service.parseQuietArg(text).kind).toBe('invalid');
+      },
+    );
+  });
 });
