@@ -219,3 +219,49 @@ describe('TradeEngineService', () => {
     });
   });
 });
+
+describe('TradeEngineService saglayici ayarlari', () => {
+  const engineWith = (env: Record<string, string>) =>
+    new TradeEngineService(
+      { get: (k: string) => env[k] } as any,
+      {} as any,
+      {} as any,
+    ) as any;
+
+  it('defaults to Abacus and fable-5', () => {
+    const e = engineWith({});
+    expect(e.apiUrl).toContain('apps.abacus.ai');
+    expect(e.model).toBe('claude-fable-5');
+    expect(e.maxTokens).toBe(4000);
+    expect(e.promptCoinCount).toBe(50);
+  });
+
+  // Ayni istek govdesi baska saglayicilarda da gecerli; kota biterse
+  // sadece ortam degiskenleri degisir.
+  it('switches provider from env alone', () => {
+    const e = engineWith({
+      LLM_API_URL: 'https://api.groq.com/openai/v1/chat/completions',
+      LLM_API_KEY: 'gsk_test',
+      LLM_MODEL: 'llama-3.3-70b-versatile',
+    });
+    expect(e.apiUrl).toContain('groq.com');
+    expect(e.apiKey).toBe('gsk_test');
+    expect(e.model).toBe('llama-3.3-70b-versatile');
+  });
+
+  it('still accepts the original ABACUSAI_API_KEY name', () => {
+    expect(engineWith({ ABACUSAI_API_KEY: 's2_eski' }).apiKey).toBe('s2_eski');
+  });
+
+  it('prefers LLM_API_KEY over the legacy name', () => {
+    expect(
+      engineWith({ LLM_API_KEY: 'yeni', ABACUSAI_API_KEY: 'eski' }).apiKey,
+    ).toBe('yeni');
+  });
+
+  it('clamps the coin count to a sane range', () => {
+    expect(engineWith({ PROMPT_COIN_COUNT: '200' }).promptCoinCount).toBe(50);
+    expect(engineWith({ PROMPT_COIN_COUNT: '1' }).promptCoinCount).toBe(5);
+    expect(engineWith({ PROMPT_COIN_COUNT: '20' }).promptCoinCount).toBe(20);
+  });
+});

@@ -44,15 +44,48 @@ export const MAX_LEVERAGE = 10;
 @Injectable()
 export class TradeEngineService {
   private readonly logger = new Logger(TradeEngineService.name);
-  private readonly apiUrl = 'https://apps.abacus.ai/v1/chat/completions';
+  /**
+   * The provider is configurable because the request body is plain
+   * OpenAI-compatible chat/completions — Abacus, Gemini's compatibility
+   * layer, Groq, OpenRouter and others all accept the same shape. If one
+   * runs out of quota the bot moves to another by changing env vars only.
+   */
+  private readonly apiUrl: string;
+  private readonly apiKey: string;
   private readonly model: string;
+  private readonly maxTokens: number;
+  /** How many coins reach the prompt. Fewer coins, fewer input tokens. */
+  private readonly promptCoinCount: number;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly marketData: MarketDataService,
   ) {
+    this.apiUrl =
+      this.config.get<string>('LLM_API_URL') ??
+      'https://apps.abacus.ai/v1/chat/completions';
+    // ABACUSAI_API_KEY stays as a fallback so existing deployments keep working.
+    this.apiKey =
+      this.config.get<string>('LLM_API_KEY') ??
+      this.config.get<string>('ABACUSAI_API_KEY') ??
+      '';
     this.model = this.config.get<string>('LLM_MODEL') ?? 'claude-fable-5';
+    this.maxTokens = parseInt(
+      this.config.get<string>('LLM_MAX_TOKENS') ?? '4000',
+      10,
+    );
+    this.promptCoinCount = Math.min(
+      Math.max(
+        parseInt(this.config.get<string>('PROMPT_COIN_COUNT') ?? '50', 10),
+        5,
+      ),
+      50,
+    );
+    this.logger.log(
+      `LLM: ${this.model} @ ${new URL(this.apiUrl).host} | ` +
+        `${this.promptCoinCount} coin, max ${this.maxTokens} token`,
+    );
   }
 
   async analyzeMarket(
@@ -490,9 +523,11 @@ Türkçe, enerjik ama dürüst konuş. Sohbet ediyoruz — sinyal makinesi deği
       ? `${market.fearGreed.value}/100 (${market.fearGreed.classification})`
       : 'bilinmiyor';
 
-    // All 50 coins, one compact line each — the model was asked to scan 50,
-    // so it must actually see 50.
+    // The model was asked to scan the list, so it must actually see the list.
+    // The count is configurable: trimming it is the cheapest way to cut input
+    // tokens when a provider's quota gets tight.
     const coinTable = market.top50
+      .slice(0, this.promptCoinCount)
       .map(
         (c, i) =>
           `${String(i + 1).padStart(2)}. ${c.pair.padEnd(12)} $${this.fmtPrice(c.current_price)} ` +
@@ -532,7 +567,7 @@ Enerjik, motive edici ve Türkçe konuşuyorsun. Ama kuralların DEMİR gibi.
 BTC ${px(market.btc)} | ETH ${px(market.eth)} | SOL ${px(market.sol)}
 Fear & Greed: ${fg}
 
-📋 HACME GÖRE TOP 50:
+📋 HACME GÖRE TOP ${this.promptCoinCount}:
 ${coinTable || '(veri yok)'}
 
 ${sourceNote}
@@ -618,8 +653,9 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
   }
 
   private async callLLM(messages: any[]): Promise<string> {
-    const apiKey = this.config.get<string>('ABACUSAI_API_KEY');
-    if (!apiKey) throw new Error('ABACUSAI_API_KEY tanimli degil');
+    if (!this.apiKey) {
+      throw new Error('LLM_API_KEY (veya ABACUSAI_API_KEY) tanimli degil');
+    }
 
     const resp = await axios.post(
       this.apiUrl,
@@ -629,12 +665,12 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
         stream: false,
         // Fable spends tokens on reasoning before it writes, so the ceiling
         // has to clear both the thinking and the answer.
-        max_tokens: 4000,
+        max_tokens: this.maxTokens,
       },
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${this.apiKey}`,
         },
         timeout: 120000,
       },
