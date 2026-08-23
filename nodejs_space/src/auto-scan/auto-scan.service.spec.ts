@@ -113,3 +113,74 @@ describe('AutoScanService.runAutoScan', () => {
     await expect(svc.runAutoScan()).resolves.toBe(0);
   });
 });
+
+describe('AutoScanService uyari mesaji', () => {
+  function svcWithResult(result: any, sent: string[]) {
+    return makeService(
+      ['a'],
+      { a: true },
+      {
+        analyzeForAutoScan: () => Promise.resolve([result]),
+        parseNum: () => 0,
+      },
+      {
+        sendMessage: (_c: string, t: string) => {
+          sent.push(t);
+          return Promise.resolve();
+        },
+        formatTradeCard: () => 'KART',
+      },
+    );
+  }
+
+  it('explains why no card followed the alert', async () => {
+    const sent: string[] = [];
+    await svcWithResult(
+      {
+        chatId: 'a',
+        response: { text: '', signal: null },
+        alert: '⚡ SERT HAREKET — KII: +20.6%',
+        reason: 'Model fırsat görmedi (signal: false).',
+      },
+      sent,
+    ).runAutoScan();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('KII');
+    expect(sent[0]).toContain('İşlem kartı yok');
+    expect(sent[0]).toContain('Model fırsat görmedi');
+  });
+
+  it('does not append the note when a card is coming', async () => {
+    const sent: string[] = [];
+    await svcWithResult(
+      {
+        chatId: 'a',
+        response: {
+          text: '',
+          signal: { pair: 'BTCUSDT', direction: 'LONG', entry: '1' },
+        },
+        alert: '⚡ SERT HAREKET',
+        reason: 'Sinyal gönderildi.',
+      },
+      sent,
+    ).runAutoScan();
+
+    expect(sent[0]).not.toContain('İşlem kartı yok');
+    expect(sent[1]).toContain('KART');
+  });
+
+  it('sends the alert unchanged when there is no reason', async () => {
+    const sent: string[] = [];
+    await svcWithResult(
+      {
+        chatId: 'a',
+        response: { text: '', signal: null },
+        alert: '⚡ SERT HAREKET',
+      },
+      sent,
+    ).runAutoScan();
+
+    expect(sent[0]).toBe('⚡ SERT HAREKET');
+  });
+});

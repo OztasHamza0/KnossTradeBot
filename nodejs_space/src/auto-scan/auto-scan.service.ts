@@ -102,9 +102,16 @@ export class AutoScanService {
 
       const results = await this.tradeEngine.analyzeForAutoScan(chatIds);
 
-      for (const { chatId, response, alert } of results) {
+      for (const { chatId, response, alert, reason } of results) {
         if (alert) {
-          await this.telegramService.sendMessage(chatId, alert);
+          // A volatility alert with no card looks like a half-finished thought
+          // unless the reason is stated. A coin that just ran 20% is often a
+          // deliberate skip, not an oversight — say which.
+          const note =
+            !response.signal && reason
+              ? `\n\n📋 İşlem kartı yok — ${reason}`
+              : '';
+          await this.telegramService.sendMessage(chatId, alert + note);
           delivered++;
         }
 
