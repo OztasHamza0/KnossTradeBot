@@ -24,6 +24,15 @@ export interface TradeSignal {
 export interface EngineResponse {
   text: string;
   signal: TradeSignal | null;
+  /**
+   * Cevapta gecerli bir JSON blogu bulundu mu.
+   *
+   * "signal yok" ile "model duzgun cevap veremedi" ayni sey degil. Zayif bir
+   * tarama modeli JSON uretemedigi icin susuyorsa bu bir format hatasi;
+   * bunu sakin piyasa sanmak, bozuk tarayiciyi haftalarca fark etmemek
+   * demek olur.
+   */
+  hadJson?: boolean;
 }
 
 export interface AutoScanResult {
@@ -280,7 +289,15 @@ export class TradeEngineService {
       let reason: string;
       let deliverable: EngineResponse = { text: '', signal: null };
 
-      if (!parsed.signal) {
+      if (!parsed.signal && parsed.hadJson === false) {
+        reason =
+          `⚠️ Tarama modeli (${this.watchModel}) geçerli JSON üretmedi — ` +
+          `bu bir FORMAT HATASI, "fırsat yok" demek değil. Model çok zayıfsa ` +
+          `LLM_MODEL_WATCH değerini değiştir.`;
+        this.logger.warn(
+          `Watch model ${this.watchModel} returned unparseable output`,
+        );
+      } else if (!parsed.signal) {
         reason = 'Model fırsat görmedi (signal: false).';
       } else if (parsed.signal.confidence < 7) {
         reason =
@@ -955,7 +972,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     const bare = fenced ? null : raw.match(/\{[\s\S]*"signal"[\s\S]*?\}/);
     const jsonText = fenced?.[1] ?? bare?.[0];
 
-    if (!jsonText) return { text: raw.trim(), signal: null };
+    if (!jsonText) return { text: raw.trim(), signal: null, hadJson: false };
 
     try {
       const parsed = JSON.parse(jsonText);
@@ -967,11 +984,14 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
             text ||
             '🔍 Şu an net bir fırsat yok. Sabırlı kal, piyasa konuşacak!',
           signal: null,
+          // Model duzgun cevap verdi ve "firsat yok" dedi — format hatasi degil.
+          hadJson: true,
         };
       }
 
       return {
         text,
+        hadJson: true,
         signal: {
           pair: String(parsed.pair ?? '').toUpperCase(),
           direction: String(parsed.direction ?? '').toUpperCase(),
@@ -987,7 +1007,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       };
     } catch (e: any) {
       this.logger.error(`Failed to parse LLM JSON: ${e?.message}`);
-      return { text: raw.trim(), signal: null };
+      return { text: raw.trim(), signal: null, hadJson: false };
     }
   }
 

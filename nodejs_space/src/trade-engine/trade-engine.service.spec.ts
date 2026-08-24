@@ -393,3 +393,41 @@ describe('TradeEngineService.reviewSignal kisa devre', () => {
     expect(r.comment).toContain('İkinci değerlendirme yapılamadı');
   });
 });
+
+describe('TradeEngineService format hatasi ayrimi', () => {
+  const engine = new TradeEngineService(
+    { get: () => undefined } as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  const fenced = (json: string) => '```json ' + json + ' ```';
+
+  // Zayif bir tarama modeli JSON uretemeyince kod bunu "firsat yok"
+  // saniyordu; bozuk tarayici ile sakin piyasa ayirt edilemiyordu.
+  it('marks a reply with no JSON as a format failure', () => {
+    const r = engine.parseResponse('Bugun piyasa sakin gorunuyor.');
+    expect(r.signal).toBeNull();
+    expect(r.hadJson).toBe(false);
+  });
+
+  it('marks malformed JSON as a format failure', () => {
+    const r = engine.parseResponse(fenced('{bozuk json'));
+    expect(r.signal).toBeNull();
+    expect(r.hadJson).toBe(false);
+  });
+
+  it('marks an explicit no-signal as a valid answer', () => {
+    const r = engine.parseResponse(fenced('{"signal": false}'));
+    expect(r.signal).toBeNull();
+    expect(r.hadJson).toBe(true);
+  });
+
+  it('marks a real signal as a valid answer', () => {
+    const r = engine.parseResponse(
+      fenced('{"signal": true, "pair": "BTCUSDT", "direction": "LONG"}'),
+    );
+    expect(r.signal).not.toBeNull();
+    expect(r.hadJson).toBe(true);
+  });
+});

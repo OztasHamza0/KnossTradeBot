@@ -39,6 +39,31 @@ LLM_MODEL=anthropic/claude-opus-5          # karar modeli
 LLM_MODEL_WATCH=anthropic/claude-haiku-4.5 # tarama modeli
 ```
 
+**Tarama modelini ücretsiz yapmak:** Asıl kararı karar modeli verdiği için
+tarayıcı ücretsiz de olabilir. OpenRouter'daki `:free` modeller arasında
+bu iş için yeterli olanlar (güçlüden zayıfa):
+
+```
+nvidia/nemotron-3-ultra-550b-a55b:free
+nvidia/nemotron-3-super-120b-a12b:free
+z-ai/glm-5.2:free
+google/gemma-4-31b-it:free
+```
+
+Ücretsiz modellerde dikkat edilecek iki şey:
+
+1. **Format güvenilirliği.** Tarayıcının `{"signal": true/false}` JSON'u
+   üretmesi gerekiyor. Üretemezse bot bunu artık "fırsat yok" sanmıyor,
+   `nöbet test` çıktısında **"FORMAT HATASI"** diye açıkça söylüyor. O uyarıyı
+   görürsen modeli değiştir.
+2. **Günlük istek limiti.** Ücretsiz uçların günlük tavanı var. Saatlik nöbet
+   günde ~16-24 çağrı yapıyor, çoğu limit buna yeter — ama `nöbet 10dk`
+   yaparsan (144/gün) limite çarpabilirsin.
+
+Modeli değiştirdikten sonra birkaç gün `nöbet test` ile kontrol et: format
+hatası veriyor mu, hiç sinyal üretmiyor mu. Hiç sinyal üretmeyen bir tarayıcı
+sessizce her fırsatı kaçırır — en sinsi başarısızlık şekli budur.
+
 Sonuç: senin gördüğün **her kart** karar modelinden geçmiş olur, ama binlerce
 sonuçsuz tarama ucuz modelde kalır. Ölçülen maliyet farkı: hepsi opus ~$29/ay,
 iki kademeli ~$19/ay.
