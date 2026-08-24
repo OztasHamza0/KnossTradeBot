@@ -949,20 +949,52 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
 
   private describeLLMError(error: any): string {
     const status = error?.response?.status;
+    // Providers put the useful sentence in different places; OpenRouter uses
+    // error.error.message, others error.message.
+    const providerMsg: string =
+      error?.response?.data?.error?.message ??
+      error?.response?.data?.message ??
+      '';
+
     this.logger.error(
-      `LLM call failed (${status ?? 'no status'}): ${error?.message}`,
+      `LLM call failed (${status ?? 'no status'}): ${error?.message}` +
+        (providerMsg ? ` | ${providerMsg}` : ''),
     );
 
     if (status === 401 || status === 403) {
-      return '🔑 Abacus API anahtarı reddedildi. ABACUSAI_API_KEY değerini kontrol et.';
+      return `🔑 API anahtarı reddedildi. LLM_API_KEY değerini kontrol et.${
+        providerMsg ? `\n\n${providerMsg}` : ''
+      }`;
+    }
+    // OpenRouter reserves max_tokens worth of credit up front, so this fires
+    // long before the balance is actually spent — the message says exactly
+    // how many tokens the balance covers.
+    if (status === 402) {
+      return (
+        `💳 Kredi yetersiz.\n\n${providerMsg}\n\n` +
+        `Çözüm: OpenRouter'a kredi yükle, ya da geçici olarak ` +
+        `LLM_MAX_TOKENS değerini düşür.`
+      );
     }
     if (status === 429) {
-      return '⏳ Abacus API kotası doldu ya da çok hızlı istek attık. Birkaç dakika sonra tekrar dene.';
+      return `⏳ Kota doldu ya da çok hızlı istek attık. Birkaç dakika sonra tekrar dene.${
+        providerMsg ? `\n\n${providerMsg}` : ''
+      }`;
+    }
+    if (status === 404) {
+      return `❓ Model bulunamadı. LLM_MODEL değerini kontrol et.${
+        providerMsg ? `\n\n${providerMsg}` : ''
+      }`;
     }
     if (error?.code === 'ECONNABORTED') {
       return '⏱️ Model zamanında cevap vermedi. Tekrar dene.';
     }
-    return '❌ Analiz motoruna ulaşamadım. Birazdan tekrar dene.';
+    // Anything unrecognised still shows the provider's own words rather than
+    // a shrug — a 402 once reached the user as "ulaşamadım", which said
+    // nothing about the actual cause.
+    return providerMsg
+      ? `❌ Analiz motoru hata verdi${status ? ` (HTTP ${status})` : ''}:\n\n${providerMsg}`
+      : '❌ Analiz motoruna ulaşamadım. Birazdan tekrar dene.';
   }
 
   parseResponse(raw: string): EngineResponse {

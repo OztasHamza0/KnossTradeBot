@@ -431,3 +431,58 @@ describe('TradeEngineService format hatasi ayrimi', () => {
     expect(r.hadJson).toBe(true);
   });
 });
+
+describe('TradeEngineService.describeLLMError', () => {
+  const engine = new TradeEngineService(
+    { get: () => undefined } as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  const err = (status: number, message?: string) => ({
+    response: { status, data: message ? { error: { message } } : undefined },
+    message: 'Request failed',
+  });
+
+  // Uretimde yasandi: OpenRouter 402 dondu, kullanici "ulasamadim" gordu ve
+  // sebebi ancak elle test edince ortaya cikti.
+  it('explains a 402 as insufficient credit and quotes the provider', () => {
+    const m = engine.describeLLMError(
+      err(402, 'You requested up to 4000 tokens, but can only afford 1589'),
+    );
+    expect(m).toContain('Kredi yetersiz');
+    expect(m).toContain('can only afford 1589');
+    expect(m).toContain('LLM_MAX_TOKENS');
+  });
+
+  it('names the key variable on 401', () => {
+    expect(engine.describeLLMError(err(401))).toContain('LLM_API_KEY');
+  });
+
+  it('names the model variable on 404', () => {
+    expect(engine.describeLLMError(err(404))).toContain('LLM_MODEL');
+  });
+
+  it('reports a quota problem on 429', () => {
+    expect(engine.describeLLMError(err(429))).toContain('Kota');
+  });
+
+  it('reports a timeout', () => {
+    expect(engine.describeLLMError({ code: 'ECONNABORTED' })).toContain(
+      'zamanında cevap vermedi',
+    );
+  });
+
+  // Taninmayan bir durum kodu bile saglayicinin kendi cumlesini gostermeli.
+  it('quotes the provider for an unrecognised status', () => {
+    const m = engine.describeLLMError(err(503, 'upstream model overloaded'));
+    expect(m).toContain('503');
+    expect(m).toContain('upstream model overloaded');
+  });
+
+  it('falls back to a generic line when there is nothing to quote', () => {
+    expect(engine.describeLLMError({ message: 'socket hang up' })).toContain(
+      'ulaşamadım',
+    );
+  });
+});
