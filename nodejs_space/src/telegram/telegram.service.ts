@@ -76,6 +76,8 @@ export class TelegramService {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
       } else if (this.isWatchCommand(text)) {
         await this.handleWatch(chatId, text);
+      } else if (this.isCreditCommand(text)) {
+        await this.handleCredit(chatId);
       } else if (this.isQuietCommand(text)) {
         await this.handleQuiet(chatId, text);
       } else if (this.isResearchCommand(text)) {
@@ -205,6 +207,7 @@ export class TelegramService {
 • "nöbet test" → Nöbeti şimdi çalıştır, sonucu raporla
 • "araştır PEPE" → Bir coini derinlemesine incele
 • "sessiz 00-08" → Uyurken tarama yapma
+• "kredi" → OpenRouter harcamanı göster
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
@@ -499,6 +502,89 @@ sen yazmadan gelen taramalar durur.`,
 
   private fmtHour(h: number): string {
     return `${String(h).padStart(2, '0')}:00`;
+  }
+
+  /**
+   * Tam eslesme: "kredi karti nedir" gibi normal bir cumle komut sanilmamali.
+   * Ayni tuzak daha once includes('tara') ile yasanmisti.
+   */
+  isCreditCommand(text: string): boolean {
+    return /^(?:\/)?(kredi|kota|harcama)$/.test(this.normalize(text));
+  }
+
+  /**
+   * "kredi" — OpenRouter harcamasini gosterir.
+   *
+   * Saglayiciya ozgu tek yer burasi. Motor bilerek saglayici-bagimsiz
+   * tutuldu, ama harcamayi sormanin standart bir yolu yok; OpenRouter
+   * disindaki bir saglayiciya gecilirse komut kibarca devre disi kalir.
+   */
+  private async handleCredit(chatId: string): Promise<void> {
+    const apiUrl = this.config.get<string>('LLM_API_URL') ?? '';
+    const apiKey =
+      this.config.get<string>('LLM_API_KEY') ??
+      this.config.get<string>('ABACUSAI_API_KEY') ??
+      '';
+
+    if (!apiUrl.includes('openrouter.ai')) {
+      await this.sendMessage(
+        chatId,
+        '💳 Harcama sorgusu sadece OpenRouter için çalışıyor.\n' +
+          'Şu anki sağlayıcı farklı, panelinden bakman gerekiyor.',
+      );
+      return;
+    }
+
+    try {
+      const resp = await axios.get('https://openrouter.ai/api/v1/key', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        timeout: 20000,
+      });
+
+      const d = resp.data?.data ?? {};
+      const usage: number = d.usage ?? 0;
+      const daily: number = d.usage_daily ?? 0;
+      const monthly: number = d.usage_monthly ?? 0;
+      // limit dolu ise anahtara tanimli tavan; null ise hesap bakiyesi gecerli.
+      const limit: number | null = d.limit ?? null;
+      const remaining: number | null = d.limit_remaining ?? null;
+
+      const usd = (n: number) => `$${n.toFixed(4)}`;
+
+      // Olculen ortalama: bir Opus taramasi ~10 sent (dusunme dahil).
+      const perCall = 0.1;
+      const callsLeft =
+        remaining !== null ? Math.floor(remaining / perCall) : null;
+
+      await this.sendMessage(
+        chatId,
+        `💳 OPENROUTER HARCAMASI
+
+📊 Bugün    : ${usd(daily)}
+📅 Bu ay    : ${usd(monthly)}
+💰 Toplam   : ${usd(usage)}
+${
+  limit !== null
+    ? `🎯 Anahtar limiti: ${usd(limit)} — kalan ${usd(remaining ?? 0)}` +
+      (callsLeft !== null ? `\n🔢 Yaklaşık ${callsLeft} "tara" daha` : '')
+    : `🔓 Anahtarda limit yok — hesap bakiyesi geçerli.
+Kalan bakiye: https://openrouter.ai/settings/credits`
+}
+
+ℹ️ Ölçülen ortalama: bir "tara" ≈ 10 sent (düşünme dahil).
+Nöbet taramaları ücretsiz modelde, faturaya girmiyor.
+"nöbet test" de ücretsiz — istediğin kadar kullan.`,
+      );
+    } catch (error: any) {
+      const status = error?.response?.status;
+      this.logger.error(`Credit lookup failed (${status}): ${error?.message}`);
+      await this.sendMessage(
+        chatId,
+        status === 401
+          ? '🔑 OpenRouter anahtarı reddedildi. LLM_API_KEY değerini kontrol et.'
+          : '❌ Harcama bilgisi alınamadı. https://openrouter.ai/activity adresinden bakabilirsin.',
+      );
+    }
   }
 
   isWatchTestCommand(text: string): boolean {

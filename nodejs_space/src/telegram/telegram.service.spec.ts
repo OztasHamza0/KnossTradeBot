@@ -372,4 +372,20 @@ describe('TelegramService command routing', () => {
       },
     );
   });
+
+  describe('kredi komutu', () => {
+    it.each(['kredi', 'KREDI', '/kredi', 'kota', 'harcama'])(
+      'matches %j',
+      (text) => {
+        expect(service.isCreditCommand(text)).toBe(true);
+      },
+    );
+
+    it.each(['kredi karti nedir', 'bakiye', 'tara'])(
+      'does not match %j',
+      (text) => {
+        expect(service.isCreditCommand(text)).toBe(false);
+      },
+    );
+  });
 });

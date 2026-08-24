@@ -75,6 +75,14 @@ export class TradeEngineService {
   private readonly maxTokens: number;
   /** How many coins reach the prompt. Fewer coins, fewer input tokens. */
   private readonly promptCoinCount: number;
+  /**
+   * Reasoning depth, when the provider supports it (OpenRouter's `reasoning`
+   * parameter). Thinking tokens are billed as output, and on a reasoning
+   * model they dominate the bill: one measured `tara` cost 10 cents, of which
+   * ~8 were thinking. Lowering effort actually reduces that work — unlike
+   * `exclude`, which only hides it.
+   */
+  private readonly reasoningEffort: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -98,6 +106,8 @@ export class TradeEngineService {
       this.config.get<string>('LLM_MAX_TOKENS') ?? '4000',
       10,
     );
+    this.reasoningEffort =
+      this.config.get<string>('LLM_REASONING_EFFORT')?.trim() ?? '';
     this.promptCoinCount = Math.min(
       Math.max(
         parseInt(this.config.get<string>('PROMPT_COIN_COUNT') ?? '50', 10),
@@ -108,7 +118,8 @@ export class TradeEngineService {
     this.logger.log(
       `LLM: karar=${this.model} nobet=${this.watchModel} @ ` +
         `${new URL(this.apiUrl).host} | ${this.promptCoinCount} coin, ` +
-        `max ${this.maxTokens} token`,
+        `max ${this.maxTokens} token` +
+        (this.reasoningEffort ? `, dusunme=${this.reasoningEffort}` : ''),
     );
   }
 
@@ -926,6 +937,11 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
         model,
         messages,
         stream: false,
+        // Only sent when configured: providers that do not know the field
+        // may reject the request outright.
+        ...(this.reasoningEffort
+          ? { reasoning: { effort: this.reasoningEffort } }
+          : {}),
         // Fable spends tokens on reasoning before it writes, so the ceiling
         // has to clear both the thinking and the answer.
         max_tokens: this.maxTokens,
