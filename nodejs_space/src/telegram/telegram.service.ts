@@ -1103,7 +1103,8 @@ ${dirIcon} Yön: ${signal.direction.toUpperCase()}
         drop_pending_updates: true,
         ...(secret ? { secret_token: secret } : {}),
       },
-      { timeout: 20000 },
+      // Soguk baslangicta 20s dar kaliyordu; uretimde bu cagri zaman asimina ugradi.
+      { timeout: 30000 },
     );
 
     if (!resp.data?.ok) {
@@ -1139,7 +1140,7 @@ ${dirIcon} Yön: ${signal.direction.toUpperCase()}
     const resp = await axios.post(
       `${this.apiBase}/setMyCommands`,
       { commands },
-      { timeout: 20000 },
+      { timeout: 30000 },
     );
 
     if (!resp.data?.ok) {

@@ -56,6 +56,43 @@ async function bootstrap() {
 }
 
 /**
+ * Retries a boot-time Telegram call.
+ *
+ * A freshly started container's network is not always ready the instant the
+ * app is: in production both boot calls timed out at 20s on the first try.
+ * One attempt is too few — a failed setWebhook leaves the bot unable to
+ * receive anything if the URL has changed.
+ */
+async function withRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  logger: Logger,
+  attempts = 4,
+): Promise<T | null> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const last = i === attempts;
+      if (last) {
+        logger.error(
+          `${label} basarisiz (${i}/${attempts}): ${error?.message}`,
+        );
+        return null;
+      }
+      // 3s, 9s, 27s — enough spread to outlast a slow cold start.
+      const waitMs = 3000 * Math.pow(3, i - 1);
+      logger.warn(
+        `${label} basarisiz (${i}/${attempts}): ${error?.message} — ` +
+          `${waitMs / 1000}s sonra tekrar denenecek`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+  return null;
+}
+
+/**
  * Publishes the "/" menu. Independent of the webhook: it needs only the bot
  * token, so it still works when PUBLIC_URL is unset.
  */
@@ -63,13 +100,15 @@ async function registerTelegramCommands(
   telegram: TelegramService,
   logger: Logger,
 ): Promise<void> {
-  try {
-    await telegram.setMyCommands();
-    logger.log('Telegram komut menusu guncellendi');
-  } catch (error: any) {
-    // Cosmetic only — the bot still answers typed commands without a menu.
-    logger.warn(`Telegram komut menusu guncellenemedi: ${error?.message}`);
-  }
+  // Cosmetic only — the bot still answers typed commands without a menu, so
+  // this gets fewer attempts than the webhook.
+  const ok = await withRetry(
+    'Telegram komut menusu',
+    () => telegram.setMyCommands(),
+    logger,
+    2,
+  );
+  if (ok !== null) logger.log('Telegram komut menusu guncellendi');
 }
 
 /**
@@ -91,12 +130,22 @@ async function registerTelegramWebhook(
     return;
   }
 
-  try {
-    const url = `${publicUrl}/webhook/telegram`;
-    await telegram.setWebhook(url);
+  const url = `${publicUrl}/webhook/telegram`;
+  const ok = await withRetry(
+    'Telegram webhook kurulumu',
+    () => telegram.setWebhook(url),
+    logger,
+  );
+
+  if (ok !== null) {
     logger.log(`Telegram webhook kuruldu: ${url}`);
-  } catch (error: any) {
-    logger.error(`Telegram webhook kurulamadi: ${error?.message}`);
+  } else {
+    logger.error(
+      `Telegram webhook KURULAMADI: ${url}\n` +
+        `Adres degismediyse Telegram'daki onceki kayit gecerli kalir ve ` +
+        `mesajlar gelmeye devam eder. Adres degistiyse bot mesaj ALAMAZ — ` +
+        `servisi yeniden baslat ya da setWebhook'u elle cagir.`,
+    );
   }
 }
 
