@@ -28,6 +28,25 @@ komutları çalışmaya devam eder. Kotayı sadece sen kullandığında harcars�
 
 ---
 
+## Kademe 1.5 — İki kademeli model (en iyi kalite/maliyet dengesi)
+
+Nöbet taramalarının ~%95'i "fırsat yok" ile bitiyor. O geçişlere pahalı model
+harcamanın karşılığı yok. Ucuz model tarar, **sinyal çıkarsa** karar modeli
+devreye girip onaylar, düzeltir ya da reddeder.
+
+```
+LLM_MODEL=anthropic/claude-opus-5          # karar modeli
+LLM_MODEL_WATCH=anthropic/claude-haiku-4.5 # tarama modeli
+```
+
+Sonuç: senin gördüğün **her kart** karar modelinden geçmiş olur, ama binlerce
+sonuçsuz tarama ucuz modelde kalır. Ölçülen maliyet farkı: hepsi opus ~$29/ay,
+iki kademeli ~$19/ay.
+
+`LLM_MODEL_WATCH` tanımlı değilse ayrım kapanır, her şey `LLM_MODEL` ile çalışır.
+
+---
+
 ## Kademe 2 — İstek başına maliyeti düşür (Render → Environment)
 
 | Değişken | Etki |

@@ -265,3 +265,131 @@ describe('TradeEngineService saglayici ayarlari', () => {
     expect(engineWith({ PROMPT_COIN_COUNT: '20' }).promptCoinCount).toBe(20);
   });
 });
+
+describe('TradeEngineService.parseReview', () => {
+  const engine = new TradeEngineService(
+    { get: () => undefined } as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  const original = baseSignal();
+
+  // parseReview'in regex'i ```(?:json)?\s*{...}\s*``` ariyor ve \s bosluğu
+  // da esliyor, o yuzden test verisi tek satirda durabiliyor.
+  const fenced = (json: string) => '```json ' + json + ' ```';
+
+  it('approves and keeps the card unchanged', () => {
+    const r = engine.parseReview(
+      fenced('{"verdict":"approve","comment":"Saglam kurulum."}'),
+      original,
+    );
+    expect(r.verdict).toBe('approve');
+    expect(r.signal.entry).toBe(original.entry);
+    expect(r.comment).toContain('Saglam');
+  });
+
+  it('rejects and drops the card', () => {
+    const r = engine.parseReview(
+      fenced(
+        '{"verdict":"reject","comment":"Hareket zaten olmus, kovalamaca."}',
+      ),
+      original,
+    );
+    expect(r.verdict).toBe('reject');
+    expect(r.signal).toBeNull();
+    expect(r.comment).toContain('kovalamaca');
+  });
+
+  it('carries revised numbers through', () => {
+    const r = engine.parseReview(
+      fenced(
+        '{"verdict":"revise","comment":"Stop cok sikiydi.","stopLoss":"65000","leverage":"2x"}',
+      ),
+      original,
+    );
+    expect(r.verdict).toBe('revise');
+    expect(r.signal.stopLoss).toBe('65000');
+    expect(r.signal.leverage).toBe('2x');
+    // Dokunulmayan alanlar orijinalinden gelir
+    expect(r.signal.pair).toBe(original.pair);
+    expect(r.signal.takeProfit).toBe(original.takeProfit);
+  });
+
+  // Denetci bir kalite kapisi, guvenlik kapisi degil: cevabi okunamazsa
+  // karti yutmak yerine geciriyoruz, cunku validateSignal zaten arkada.
+  it('approves unchanged when the reply has no JSON', () => {
+    const r = engine.parseReview('bilmem ne dedi', original);
+    expect(r.verdict).toBe('approve');
+    expect(r.signal).toEqual(original);
+  });
+
+  it('approves unchanged on malformed JSON', () => {
+    const r = engine.parseReview(fenced('{bozuk'), original);
+    expect(r.verdict).toBe('approve');
+    expect(r.signal).toEqual(original);
+  });
+
+  it('treats an unknown verdict as approve', () => {
+    const r = engine.parseReview('{"verdict":"belki","comment":"x"}', original);
+    expect(r.verdict).toBe('approve');
+  });
+
+  it('reads a bare JSON object without a fence', () => {
+    const r = engine.parseReview(
+      'Sonuc: {"verdict":"reject","comment":"riskli"}',
+      original,
+    );
+    expect(r.verdict).toBe('reject');
+  });
+});
+
+describe('TradeEngineService.reviewSignal kisa devre', () => {
+  it('skips the review when no separate watch model is configured', async () => {
+    const engine = new TradeEngineService(
+      {
+        get: (k: string) => (k === 'LLM_MODEL' ? 'ayni-model' : undefined),
+      } as any,
+      {} as any,
+      {} as any,
+    ) as any;
+
+    // Ikinci cagri yapilirsa test patlar
+    engine.callLLM = () => Promise.reject(new Error('cagrilmamaliydi'));
+
+    const r = await engine.reviewSignal(
+      baseSignal(),
+      binanceMarket(['BTCUSDT']),
+      [],
+      100,
+    );
+    expect(r.verdict).toBe('approve');
+    expect(r.signal).not.toBeNull();
+  });
+
+  it('lets the card through when the reviewer call fails', async () => {
+    const engine = new TradeEngineService(
+      {
+        get: (k: string) =>
+          k === 'LLM_MODEL'
+            ? 'karar-modeli'
+            : k === 'LLM_MODEL_WATCH'
+              ? 'ucuz-model'
+              : undefined,
+      } as any,
+      {} as any,
+      {} as any,
+    ) as any;
+
+    engine.callLLM = () => Promise.reject(new Error('saglayici coktu'));
+
+    const r = await engine.reviewSignal(
+      baseSignal(),
+      binanceMarket(['BTCUSDT']),
+      [],
+      100,
+    );
+    expect(r.verdict).toBe('approve');
+    expect(r.comment).toContain('İkinci değerlendirme yapılamadı');
+  });
+});

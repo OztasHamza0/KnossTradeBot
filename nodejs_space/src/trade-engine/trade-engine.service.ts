@@ -34,6 +34,14 @@ export interface AutoScanResult {
   reason?: string;
 }
 
+/** Ucuz nobet modelinin urettigi sinyale ana modelin verdigi karar. */
+export interface SignalReview {
+  verdict: 'approve' | 'revise' | 'reject';
+  /** reject ise null; revise ise duzeltilmis kart. */
+  signal: TradeSignal | null;
+  comment: string;
+}
+
 /** Kill switch threshold — below this, no trade may be proposed. */
 export const MIN_BALANCE_USDT = 50;
 /** Position size ceiling as a fraction of balance. */
@@ -53,6 +61,8 @@ export class TradeEngineService {
   private readonly apiUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
+  /** Ucuz tarama modeli; sinyal cikarsa ana model dogruluyor. */
+  private readonly watchModel: string;
   private readonly maxTokens: number;
   /** How many coins reach the prompt. Fewer coins, fewer input tokens. */
   private readonly promptCoinCount: number;
@@ -71,6 +81,10 @@ export class TradeEngineService {
       this.config.get<string>('ABACUSAI_API_KEY') ??
       '';
     this.model = this.config.get<string>('LLM_MODEL') ?? 'claude-fable-5';
+    // Nobet taramalarinin buyuk cogunlugu "firsat yok" ile bitiyor; o
+    // gecislere pahali model harcamanin karsiligi yok. Tanimli degilse
+    // ayrim kapanir ve her sey ana modele gider.
+    this.watchModel = this.config.get<string>('LLM_MODEL_WATCH') ?? this.model;
     this.maxTokens = parseInt(
       this.config.get<string>('LLM_MAX_TOKENS') ?? '4000',
       10,
@@ -83,8 +97,9 @@ export class TradeEngineService {
       50,
     );
     this.logger.log(
-      `LLM: ${this.model} @ ${new URL(this.apiUrl).host} | ` +
-        `${this.promptCoinCount} coin, max ${this.maxTokens} token`,
+      `LLM: karar=${this.model} nobet=${this.watchModel} @ ` +
+        `${new URL(this.apiUrl).host} | ${this.promptCoinCount} coin, ` +
+        `max ${this.maxTokens} token`,
     );
   }
 
@@ -239,7 +254,10 @@ export class TradeEngineService {
 
       let raw: string;
       try {
-        raw = await this.callLLM(this.buildMessages(systemPrompt, [], userMsg));
+        raw = await this.callLLM(
+          this.buildMessages(systemPrompt, [], userMsg),
+          this.watchModel,
+        );
       } catch (error: any) {
         this.logger.error(
           `Auto-scan LLM call failed for ${chatId}: ${error?.message}`,
@@ -284,8 +302,53 @@ export class TradeEngineService {
             `${parsed.signal.pair} ${parsed.signal.direction} son 4 saatte zaten ` +
             `gönderilmişti (spam koruması).`;
         } else {
-          deliverable = parsed;
-          reason = 'Sinyal gönderildi.';
+          // Escalation: the watch found something, so the decision model
+          // reviews it before the user ever sees a card. This is the only
+          // place the expensive model runs during a watch pass.
+          const review = await this.reviewSignal(
+            parsed.signal,
+            market,
+            instructions,
+            balance,
+          );
+
+          if (review.verdict === 'reject' || !review.signal) {
+            reason = `İkinci değerlendirmede elendi: ${review.comment || 'gerekçe belirtilmedi'}`;
+            this.logger.log(`Review rejected signal: ${review.comment}`);
+          } else {
+            // A revised card is not trusted either — it goes through the same
+            // hard rules as the original.
+            const reValidation = this.validateSignal(
+              review.signal,
+              market,
+              balance,
+            );
+
+            if (!reValidation.valid) {
+              reason =
+                `İkinci değerlendirme kartı düzeltti ama düzeltilmiş hali ` +
+                `güvenlik kontrolünden geçemedi: ${reValidation.reason}`;
+              this.logger.warn(
+                `Revised signal failed validation: ${reValidation.reason}`,
+              );
+            } else {
+              const note =
+                review.verdict === 'revise'
+                  ? `\n\n🔎 İkinci değerlendirme kartı düzeltti: ${review.comment}`
+                  : review.comment
+                    ? `\n\n🔎 İkinci değerlendirme onayladı: ${review.comment}`
+                    : '';
+
+              deliverable = {
+                text: parsed.text + note,
+                signal: review.signal,
+              };
+              reason =
+                review.verdict === 'revise'
+                  ? 'Sinyal düzeltilerek gönderildi.'
+                  : 'Sinyal gönderildi (ikinci değerlendirmeden geçti).';
+            }
+          }
         }
       }
 
@@ -295,6 +358,189 @@ export class TradeEngineService {
     }
 
     return results;
+  }
+
+  /**
+   * Second opinion on a watch signal.
+   *
+   * The watch runs on a cheap model because the overwhelming majority of
+   * passes end in "no opportunity" — spending a premium model on those is
+   * waste. But the rare pass that *does* produce a card is exactly where the
+   * user acts with real money, so that one gets reviewed by the decision
+   * model before it ever reaches Telegram.
+   *
+   * The reviewer may approve, revise, or reject. A revised card is re-run
+   * through validateSignal by the caller like any other — the review is a
+   * quality gate, not a bypass.
+   */
+  async reviewSignal(
+    signal: TradeSignal,
+    market: MarketOverview,
+    instructions: string[],
+    balance: number | null,
+  ): Promise<SignalReview> {
+    // No separate reviewer configured — the watch already ran on the
+    // decision model, so a second pass would just cost twice.
+    if (this.watchModel === this.model) {
+      return { verdict: 'approve', signal, comment: '' };
+    }
+
+    const coin = market.top50.find((c) => c.pair === signal.pair);
+    const coinLine = coin
+      ? `${coin.pair}: $${this.fmtPrice(coin.current_price)} | ` +
+        `24s ${coin.price_change_percentage_24h.toFixed(2)}% | ` +
+        `1s ${coin.price_change_percentage_1h.toFixed(2)}% | ` +
+        `hacim $${(coin.total_volume / 1e6).toFixed(0)}M`
+      : `${signal.pair}: hacim listesinde yok`;
+
+    const others = market.top50
+      .slice(0, 15)
+      .map(
+        (c) =>
+          `${c.symbol} ${c.price_change_percentage_24h >= 0 ? '+' : ''}${c.price_change_percentage_24h.toFixed(1)}%`,
+      )
+      .join(', ');
+
+    const instructionsBlock = instructions.length
+      ? `\n\nKULLANICININ KALICI TALİMATLARI:\n${instructions.map((x, i) => `${i + 1}. ${x}`).join('\n')}`
+      : '';
+
+    const systemPrompt = `Sen deneyimli bir risk yöneticisisin. Daha küçük bir model bir işlem
+önerisi üretti. Senin işin bunu onaylamak, düzeltmek ya da reddetmek.
+
+Sen fırsat aramıyorsun — önüne gelen öneriyi denetliyorsun. Şüpheci ol.
+Kullanıcı bu kartla GERÇEK PARA koyacak.
+
+📋 ÖNERİLEN İŞLEM:
+Parite      : ${signal.pair}
+Yön         : ${signal.direction}
+Kaldıraç    : ${signal.leverage}
+Margin      : ${signal.margin}
+Giriş       : ${signal.entry}
+Stop-loss   : ${signal.stopLoss}
+Take-profit : ${signal.takeProfit}
+Güven       : ${signal.confidence}/10
+Gerekçe     : ${signal.reason}
+
+📊 PARİTENİN GÜNCEL DURUMU:
+${coinLine}
+
+🌍 PİYASA: BTC ${market.btc ? `$${this.fmtPrice(market.btc.current_price)} (${market.btc.price_change_percentage_24h.toFixed(1)}%)` : '?'} | Fear & Greed ${market.fearGreed?.value ?? '?'}
+İlk 15: ${others}
+
+💰 Bakiye: ${balance ?? 'bildirilmemiş'} USDT${instructionsBlock}
+
+🔍 NELERİ SORGULA:
+1. Giriş mantıklı mı, yoksa hareket zaten olmuş da kovalamaca mı oluyor?
+2. Stop-loss yerinde mi — çok sıkı (gürültüde süpürülür) ya da çok geniş mi?
+3. Risk/ödül oranı işe değer mi? En az 1:1.5 olmalı.
+4. Take-profit gerçekçi mi, yoksa hayal mi?
+5. Kaldıraç bu volatiliteye uygun mu?
+6. Gerekçe verilerle tutarlı mı, uydurma bir hikaye mi?
+
+⚖️ KARARIN:
+- "approve" → öneri sağlam, olduğu gibi geçsin
+- "revise"  → fikir doğru ama rakamlar düzeltilmeli (stop/hedef/kaldıraç)
+- "reject"  → bu işlem açılmamalı
+
+Reddetmekten çekinme. En iyi işlem çoğu zaman yapmadığın işlemdir.
+
+Cevabını SADECE şu JSON ile ver:
+\`\`\`json
+{
+  "verdict": "approve",
+  "comment": "Türkçe, tek iki cümle gerekçe",
+  "pair": "${signal.pair}",
+  "direction": "${signal.direction}",
+  "leverage": "${signal.leverage}",
+  "margin": "${signal.margin}",
+  "entry": "${signal.entry}",
+  "stopLoss": "${signal.stopLoss}",
+  "takeProfit": "${signal.takeProfit}",
+  "potentialGain": "${signal.potentialGain}",
+  "confidence": ${signal.confidence},
+  "reason": "kısa gerekçe"
+}
+\`\`\`
+verdict "revise" ise rakamları değiştir. "reject" ise rakamlar önemsiz,
+sadece comment'te neden reddettiğini yaz.`;
+
+    let raw: string;
+    try {
+      raw = await this.callLLM(
+        [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: 'Bu işlem önerisini denetle ve kararını ver.',
+          },
+        ],
+        this.model,
+      );
+    } catch (error: any) {
+      // The reviewer is a quality gate, not a safety gate — validateSignal
+      // still runs either way. Letting the card through on a reviewer outage
+      // is better than silently swallowing every signal.
+      this.logger.error(`Signal review failed: ${error?.message}`);
+      return {
+        verdict: 'approve',
+        signal,
+        comment: '(İkinci değerlendirme yapılamadı, kart ilk haliyle geçti.)',
+      };
+    }
+
+    return this.parseReview(raw, signal);
+  }
+
+  parseReview(raw: string, original: TradeSignal): SignalReview {
+    const fenced = raw.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    const bare = fenced ? null : raw.match(/\{[\s\S]*"verdict"[\s\S]*?\}/);
+    const jsonText = fenced?.[1] ?? bare?.[0];
+
+    if (!jsonText) {
+      this.logger.warn('Review response had no JSON; approving unchanged');
+      return {
+        verdict: 'approve',
+        signal: original,
+        comment: raw.trim().slice(0, 300),
+      };
+    }
+
+    try {
+      const p = JSON.parse(jsonText);
+      const verdict =
+        p.verdict === 'reject'
+          ? 'reject'
+          : p.verdict === 'revise'
+            ? 'revise'
+            : 'approve';
+      const comment = String(p.comment ?? '').trim();
+
+      if (verdict === 'reject') {
+        return { verdict, signal: null, comment };
+      }
+
+      // approve and revise both carry a full card; revise changed the numbers.
+      return {
+        verdict,
+        signal: {
+          pair: String(p.pair ?? original.pair).toUpperCase(),
+          direction: String(p.direction ?? original.direction).toUpperCase(),
+          leverage: String(p.leverage ?? original.leverage),
+          margin: String(p.margin ?? original.margin),
+          entry: String(p.entry ?? original.entry),
+          stopLoss: String(p.stopLoss ?? original.stopLoss),
+          takeProfit: String(p.takeProfit ?? original.takeProfit),
+          potentialGain: String(p.potentialGain ?? original.potentialGain),
+          confidence: Number(p.confidence) || original.confidence,
+          reason: String(p.reason ?? original.reason),
+        },
+        comment,
+      };
+    } catch (e: any) {
+      this.logger.error(`Review JSON parse failed: ${e?.message}`);
+      return { verdict: 'approve', signal: original, comment: '' };
+    }
   }
 
   /** Diagnostics for "nöbet test" — no model call, so it is free and instant. */
@@ -652,7 +898,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     return msgs;
   }
 
-  private async callLLM(messages: any[]): Promise<string> {
+  private async callLLM(messages: any[], model = this.model): Promise<string> {
     if (!this.apiKey) {
       throw new Error('LLM_API_KEY (veya ABACUSAI_API_KEY) tanimli degil');
     }
@@ -660,7 +906,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     const resp = await axios.post(
       this.apiUrl,
       {
-        model: this.model,
+        model,
         messages,
         stream: false,
         // Fable spends tokens on reasoning before it writes, so the ceiling
