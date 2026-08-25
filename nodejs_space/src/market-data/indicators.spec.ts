@@ -203,3 +203,28 @@ describe('judgeStopDistance', () => {
     expect(judgeStopDistance(100, 99.9, NaN).ok).toBe(true);
   });
 });
+
+describe('judgeStopDistance — alt sinir prompt ile ayni (1.5 ATR)', () => {
+  // Kod 1.0, prompt 1.5 diyordu. Aradaki boslugu gecen kartlar denetci
+  // modele "bu oynaklikta supurulur" diye elettiriliyordu: olculen ornek
+  // ZRO, ATR %4.41/saat, stop %4.5 = 1.02 ATR.
+  it('1.02 ATR artik kodda eleniyor (eskiden geciyordu)', () => {
+    const v = judgeStopDistance(100, 95.9, 4);
+    expect(v.ok).toBe(false);
+    expect(v.atrMultiple).toBeCloseTo(1.025, 2);
+    expect(v.reason).toContain('1.5');
+  });
+
+  it('tam 1.5 ATR gecer', () => {
+    expect(judgeStopDistance(100, 94, 4).ok).toBe(true);
+  });
+
+  it('1.49 ATR gecmez', () => {
+    expect(judgeStopDistance(100, 94.04, 4).ok).toBe(false);
+  });
+
+  it('ust sinir 6 ATR degismedi', () => {
+    expect(judgeStopDistance(100, 76, 4).ok).toBe(true);
+    expect(judgeStopDistance(100, 74, 4).ok).toBe(false);
+  });
+});

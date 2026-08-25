@@ -156,11 +156,21 @@ export function rangePosition(
 }
 
 /**
- * Bir stop mesafesinin oynakliga gore makul olup olmadigi.
+ * Stop mesafesinin oynakliga gore makul olup olmadigi.
  *
- * 1 ATR'den yakin stop gurultude supurulur; 6 ATR'den uzak stop ise
- * "stop koydum" demenin oteye gecmeyen bir sekli olur.
+ * Alt sinir neden 1.5: prompt modele bastan beri "stop en az 1.5 ATR uzakta
+ * olmali" diyordu ama kod 1.0'i geciriyordu. Aradaki bosluga dusen kartlar
+ * kodu geciyor, sonra denetci modele "bu stop bu oynaklikta supurulur" diye
+ * elettiriliyordu — olculen bir ornek: ZRO, ATR %4.41/saat, stop %4.5 = 1.02
+ * ATR. Kod gecirdi, denetci reddetti, kullaniciya sadece ret gerekcesi gitti.
+ * Iki esigi ayni yapmak hem o turu bastan onluyor hem bir LLM cagrisi
+ * tasarruf ettiriyor.
+ *
+ * Ust sinir 6 ATR: daha uzagi "stop koydum" demenin oteye gecmeyen bir sekli.
  */
+export const MIN_STOP_ATR = 1.5;
+export const MAX_STOP_ATR = 6;
+
 export function judgeStopDistance(
   entry: number,
   stopLoss: number,
@@ -173,18 +183,19 @@ export function judgeStopDistance(
   const distance = Math.abs(entry - stopLoss);
   const atrMultiple = distance / atrValue;
 
-  if (atrMultiple < 1) {
+  if (atrMultiple < MIN_STOP_ATR) {
     return {
       ok: false,
       atrMultiple,
       reason:
-        `Stop girişe çok yakın: ${atrMultiple.toFixed(2)} ATR. ` +
-        `Bu parite saatte ortalama ${atrValue.toFixed(4)} oynuyor, ` +
-        `stop normal gürültüde süpürülür.`,
+        `Stop girişe çok yakın: ${atrMultiple.toFixed(2)} ATR ` +
+        `(en az ${MIN_STOP_ATR} olmalı). Bu parite saatte ortalama ` +
+        `${atrValue.toFixed(4)} oynuyor, stop normal gürültüde süpürülür — ` +
+        `isabetli tahmin bile zararla kapanır.`,
     };
   }
 
-  if (atrMultiple > 6) {
+  if (atrMultiple > MAX_STOP_ATR) {
     return {
       ok: false,
       atrMultiple,

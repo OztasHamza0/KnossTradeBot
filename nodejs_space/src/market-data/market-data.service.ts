@@ -19,6 +19,12 @@ export interface CoinData {
   onFutures: boolean;
 }
 
+/**
+ * Bir hareketin "sert" sayilmasi icin gereken 1 saatlik degisim (%).
+ * Uyari mesajinin esigi (%5) daha yuksek; bu, aday havuzu icin.
+ */
+export const SHARP_MOVE_PCT = 2;
+
 export type MarketSource = 'binance' | 'coingecko' | 'none';
 
 export interface MarketOverview {
@@ -67,6 +73,8 @@ export interface CoinAnalysis {
   openInterestChangePct: number | null;
   /** Long/short hesap orani; 2 uzeri long tarafi kalabalik. */
   longShortRatio: number | null;
+  /** Bu coin aday havuzuna NICIN girdi — prompt bunu modele soyluyor. */
+  setup?: string;
 }
 
 /** Tek bir coin icin derin arastirma verisi — "arastir PEPE" komutu kullanir. */
@@ -523,29 +531,102 @@ export class MarketDataService {
    * The scan prompt cannot carry fifty deep reads, and it does not need to:
    * the only candidates worth judging are the ones with movement behind them.
    */
+  /**
+   * Aday havuzunu farkli kurulum tiplerinden kurar.
+   *
+   * Eskiden tek olcut vardi: |1 saatlik degisim| en buyuk 5. Bunun sonucu
+   * havuzda HER ZAMAN "zaten kosmus" coinler olmasiydi; model de dogal
+   * olarak tepeden SHORT oneriyordu. Denetci bunlari duzenli olarak
+   * "momentuma karsi pozisyon, onay yok" diye eliyordu — yani boru hatti
+   * her tur olmeye mahkum kart uretiyordu.
+   *
+   * Simdi ucu de ayri bir soruya cevap veren uc kova var. Her aday nicin
+   * secildigi etiketiyle prompt'a giriyor, cunku "bu coin geri cekilmede"
+   * bilgisi modelin karari icin ham yuzdeden daha degerli.
+   *
+   * Maliyet ayni: yine `count` kadar derin analiz cekiliyor.
+   */
+  selectCandidates(
+    market: MarketOverview,
+    count = 5,
+  ): { pair: string; setup: string }[] {
+    // 1 saatlik verisi olmayan coin aday olamaz: hareket edip etmedigini
+    // bilmiyoruz, "0" varsaymak onu sakin sanmak olurdu.
+    const pool = market.top50.filter(
+      (c) => c.price_change_percentage_1h !== null,
+    );
+
+    const picked = new Map<string, string>();
+    const take = (list: CoinData[], setup: string, n: number) => {
+      for (const c of list) {
+        if (picked.size >= count) return;
+        if (picked.has(c.pair)) continue;
+        picked.set(c.pair, setup);
+        if (--n <= 0) return;
+      }
+    };
+
+    const h1 = (c: CoinData) => c.price_change_percentage_1h ?? 0;
+    const h24 = (c: CoinData) => c.price_change_percentage_24h;
+
+    // 1) Sert hareket. Uyari mesajinin da dayandigi kova; bunlar genelde
+    //    ortalamaya donus adayi ve cogu zaman kovalamaca cikiyor, o yuzden
+    //    havuzun tamami degil bir parcasi.
+    //
+    //    Esik sart: esiksizken sakin bir gunde %1 oynayan bir coin "en cok
+    //    oynayan" diye bu etiketi aliyordu ve model onu sert hareket sanip
+    //    ortalamaya donus arıyordu. Gercekten hareket yoksa bu kova bos
+    //    kalmali, havuz da geri cekilme/trend kurulumlariyla dolmali.
+    take(
+      pool
+        .filter((c) => Math.abs(h1(c)) >= SHARP_MOVE_PCT)
+        .sort((a, b) => Math.abs(h1(b)) - Math.abs(h1(a))),
+      'sert hareket — son 1 saatte en cok oynayan',
+      2,
+    );
+
+    // 2) Trend icinde geri cekilme. Denetcinin surekli istedigi sey tam
+    //    olarak buydu: "geri cekilme onayi beklenmeli". Yukselen bir coin
+    //    soluklaniyorsa devam girisi kovalamaca degildir; dusen bir coin
+    //    tepki veriyorsa short devami da oyle.
+    const pullback = pool.filter(
+      (c) =>
+        (h24(c) > 3 && h1(c) <= 0) || (h24(c) < -3 && h1(c) >= 0),
+    );
+    take(
+      pullback.sort((a, b) => Math.abs(h24(b)) - Math.abs(h24(a))),
+      'trend icinde geri cekilme — 24s yonu ile son 1 saat ters',
+      2,
+    );
+
+    // 3) Gunun trend liderleri. Devam kurulumlari burada cikar.
+    take(
+      [...pool].sort((a, b) => Math.abs(h24(b)) - Math.abs(h24(a))),
+      'gunun trend lideri — 24s en buyuk hareket',
+      count,
+    );
+
+    return [...picked].map(([pair, setup]) => ({ pair, setup }));
+  }
+
   async getMoverAnalysis(
     market: MarketOverview,
     count = 5,
   ): Promise<CoinAnalysis[]> {
     if (market.source !== 'binance' || market.top50.length === 0) return [];
 
-    // 1 saatlik verisi olmayan coin aday olamaz: hareket edip etmedigini
-    // bilmiyoruz, "0" varsaymak onu sakin sanmak olurdu.
-    const movers = [...market.top50]
-      .filter((c) => c.price_change_percentage_1h !== null)
-      .sort(
-        (a, b) =>
-          Math.abs(b.price_change_percentage_1h!) -
-          Math.abs(a.price_change_percentage_1h!),
-      )
-      .slice(0, count);
+    const candidates = this.selectCandidates(market, count);
 
     const results = await Promise.all(
-      movers.map((c) =>
-        this.getCoinAnalysis(c.pair).catch((e: any) => {
-          this.logger.warn(`Analysis failed for ${c.pair}: ${e?.message}`);
-          return null;
-        }),
+      candidates.map(
+        ({ pair, setup }): Promise<CoinAnalysis | null> =>
+          this.getCoinAnalysis(pair)
+            // Etiket adaya ozel; onbellekteki nesneyi kirletmemek icin kopya.
+            .then((a) => (a ? { ...a, setup } : null))
+            .catch((e: any) => {
+              this.logger.warn(`Analysis failed for ${pair}: ${e?.message}`);
+              return null;
+            }),
       ),
     );
 

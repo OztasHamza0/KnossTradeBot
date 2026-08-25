@@ -1054,13 +1054,16 @@ ${sourceNote}
 
 ${
   movers.length
-    ? `🔬 EN HAREKETLİ COİNLERİN DERİN ANALİZİ:
+    ? `🔬 ADAY COİNLERİN DERİN ANALİZİ:
 (Bunlar tek bir yüzdeye bakarak karar vermeni engellemek için var.
-Bir coin günlük pencerede ucuz, aylık pencerede tavana yapışık olabilir.)
+Bir coin günlük pencerede ucuz, aylık pencerede tavana yapışık olabilir.
+Her adayın yanında havuza NİÇİN girdiği yazıyor — kurulum tipi, ham
+yüzdeden daha çok şey söyler. Hepsi işlem adayı değil; bazıları
+"şu an girilmez" cevabının gerekçesi olacak.)
 
 ${movers
   .map(
-    (m) => `▸ ${m.pair}
+    (m) => `▸ ${m.pair}${m.setup ? `  [${m.setup}]` : ''}
 ${this.formatAnalysis(m)}`,
   )
   .join('\n\n')}
@@ -1068,6 +1071,29 @@ ${this.formatAnalysis(m)}`,
     : ''
 }
 ${balanceBlock}
+
+🎯 GİRİŞ KALİTESİ (kartın bu süzgeçten geçmeli):
+Bir risk yöneticisi kartını denetleyecek ve şu gerekçelerle reddediyor.
+Kartı yazmadan önce sen kontrol et, yoksa boşa üretmiş olursun:
+
+1. MOMENTUMA KARŞI GİRME. Son 1 saatte sert yükselen bir coine SHORT,
+   sert düşene LONG açmak "düşen bıçağı yakalamak"tır. Yalnızca somut bir
+   dönüş kanıtı varsa karşı pozisyon aç: bir direncin test edilip
+   başarısız dönmesi, ya da yerleşik aralığın kırılması. "RSI aşırı alım"
+   TEK BAŞINA dönüş kanıtı DEĞİLDİR — güçlü trendlerde RSI günlerce 70+
+   kalır.
+2. KOVALAMA. Hareketin çoğu olmuşsa giriş geç kalmıştır. Bu durumda ya
+   geri çekilme bekle ya da kart verme.
+3. STOP OYNAKLIĞA UYMALI. Coin saatte %4 oynuyorsa %4'lük stop normal
+   gürültüde süpürülür — isabetli tahmin bile zararla kapanır. Yukarıdaki
+   ölçümlerde her coin için asgari stop mesafesi yazıyor, ona uy.
+4. YAPI OLMADAN GİRİŞ YOK. Girişin, stopun ve hedefin neden ORASI olduğunu
+   ölçümlere dayandır. "Yükseliyor, devam eder" bir gerekçe değildir.
+5. "Şu an işlem yok" tam puanlı bir cevaptır. Zorlama kart üretme.
+
+En temiz kurulum genelde şudur: trendi belirle, geri çekilmeyi bekle,
+trend yönünde gir. Aday listesinde geri çekilme etiketli coin varsa
+önce ona bak.
 
 🚫 DEMİR KURALLAR (ASLA İHLAL ETME):
 1. Her işlem sinyalinde MUTLAKA stop-loss VE take-profit olacak. Sonradan genişletilemez.
