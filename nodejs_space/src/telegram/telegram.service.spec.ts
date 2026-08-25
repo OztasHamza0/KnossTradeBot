@@ -388,4 +388,51 @@ describe('TelegramService command routing', () => {
       },
     );
   });
+
+  describe('parseAmount — binlik ayraclari', () => {
+    // "bakiye 1,000" -> 1 USDT kaydediliyordu ve kill switch aniden
+    // devreye giriyordu.
+    it.each([
+      ['1,000', 1000],
+      ['1.000', 1000],
+      ['1,000,000', 1000000],
+      ['1.000.000', 1000000],
+      ['100', 100],
+      ['99,5', 99.5],
+      ['99.50', 99.5],
+      ['1,234.56', 1234.56],
+      ['1.234,56', 1234.56],
+    ])('parses %j to %f', (raw, expected) => {
+      expect(service.parseAmount(raw)).toBeCloseTo(expected, 4);
+    });
+
+    it('reads a thousands-separated balance from the command', () => {
+      expect(service.matchBalanceCommand('bakiye 1,000')).toBeCloseTo(1000);
+      expect(service.matchBalanceCommand('bakiye 2.500')).toBeCloseTo(2500);
+    });
+  });
+
+  describe('isAllowed', () => {
+    const withAllow = (list?: string) =>
+      new TelegramService(
+        {
+          get: (k: string) => (k === 'ALLOWED_CHAT_IDS' ? list : undefined),
+        } as any,
+        stubPrisma,
+        stubEngine,
+        stubMarket,
+      ) as any;
+
+    it('serves everyone when no allowlist is configured', () => {
+      expect(withAllow(undefined).isAllowed('12345')).toBe(true);
+      expect(withAllow('').isAllowed('12345')).toBe(true);
+    });
+
+    it('serves only the listed chats', () => {
+      const svc = withAllow('111, 222');
+      expect(svc.isAllowed('111')).toBe(true);
+      expect(svc.isAllowed('222')).toBe(true);
+      expect(svc.isAllowed('333')).toBe(false);
+    });
+  });
 });

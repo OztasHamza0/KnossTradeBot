@@ -498,3 +498,30 @@ describe('TradeEngineService.describeLLMError', () => {
     );
   });
 });
+
+describe('TradeEngineService.parseReview duz metin reddi', () => {
+  const engine = new TradeEngineService(
+    { get: () => undefined } as any,
+    {} as any,
+    {} as any,
+  ) as any;
+  const original = baseSignal();
+
+  // Denetci JSON uretmeyip duz metinle reddederse, o metin ONAY YORUMU
+  // olarak karta yapistirilip gonderiliyordu — red tavsiye gibi goruniyordu.
+  it.each([
+    'Bu islemi reddediyorum cunku giris cok yuksek.',
+    'Bu pozisyon açılmamalı, risk fazla.',
+    'Tavsiye etmem, uzak dur.',
+  ])('treats plain-text rejection %j as a reject', (text) => {
+    const r = engine.parseReview(text, original);
+    expect(r.verdict).toBe('reject');
+    expect(r.signal).toBeNull();
+  });
+
+  it('does not paste ambiguous prose as an approval comment', () => {
+    const r = engine.parseReview('Hmm, ilginc bir kurulum.', original);
+    expect(r.verdict).toBe('approve');
+    expect(r.comment).toBe('');
+  });
+});

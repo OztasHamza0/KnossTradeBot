@@ -221,6 +221,16 @@ export class MarketDataService {
   >();
   private readonly ANALYSIS_TTL = 3 * 60 * 1000;
 
+  /**
+   * Son basarili Binance cekiminden kalan parite listesi.
+   *
+   * CoinGecko yedegine dusuldugunde bu liste bos kaliyordu ve sinyal
+   * dogrulamasindaki "bu parite Futures'ta var mi" kontrolu tamamen
+   * kapaniyordu. Pariteler saatler icinde degismez; son bilinen liste
+   * hicbir listeden iyidir.
+   */
+  private lastKnownTradablePairs: string[] = [];
+
   async getMarketData(): Promise<MarketOverview> {
     if (this.cache && Date.now() < this.cacheExpiry) {
       return this.cache;
@@ -652,7 +662,10 @@ export class MarketDataService {
     let source: MarketSource;
 
     // Tradability is decided by the full list; the prompt only carries 50.
-    const tradablePairs = binance.map((b) => b.pair);
+    if (binance.length > 0) {
+      this.lastKnownTradablePairs = binance.map((b) => b.pair);
+    }
+    const tradablePairs = this.lastKnownTradablePairs;
 
     if (binance.length > 0) {
       source = 'binance';
@@ -717,9 +730,9 @@ export class MarketDataService {
             current_price: parseFloat(t.lastPrice),
             price_change_percentage_24h: parseFloat(t.priceChangePercent),
             // CoinGecko eslesmesi yoksa null kalir. Eskiden 0 yaziliyordu ve
-          // model bunu "hic hareket etmemis" diye okuyordu — eksik veri degil,
-          // YANLIS veri. Top 50'nin yarisi bu durumdaydi.
-          price_change_percentage_1h: null,
+            // model bunu "hic hareket etmemis" diye okuyordu — eksik veri degil,
+            // YANLIS veri. Top 50'nin yarisi bu durumdaydi.
+            price_change_percentage_1h: null,
             total_volume: parseFloat(t.quoteVolume),
             onFutures: true,
           }))

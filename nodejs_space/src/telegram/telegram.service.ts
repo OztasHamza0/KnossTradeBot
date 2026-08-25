@@ -57,6 +57,18 @@ export class TelegramService {
     const text = (message.text ?? message.caption ?? '').trim();
     const hasPhoto = Array.isArray(message.photo) && message.photo.length > 0;
 
+    // Yetkisiz sohbet kaydedilmez: kaydedilseydi active_chats'e girer ve
+    // saatlik nobette KULLANICININ LLM kotasindan tarama alirdi. Botun
+    // adresini bulan herkes faturayi buyutebilirdi.
+    if (!this.isAllowed(chatId)) {
+      this.logger.warn(`Unauthorized chat ${chatId} rejected`);
+      await this.sendMessage(
+        chatId,
+        '🔒 Bu bot özel kullanım için. Erişim izniniz yok.',
+      );
+      return;
+    }
+
     await this.registerChat(chatId);
 
     try {
@@ -100,6 +112,20 @@ export class TelegramService {
       );
       await this.sendMessage(chatId, '❌ Bir hata oluştu, tekrar dene dostum!');
     }
+  }
+
+  /**
+   * ALLOWED_CHAT_IDS tanimliysa yalnizca o sohbetlere hizmet verilir.
+   * Bos birakilirsa herkese acik kalir (tek kullanicilik kurulumda pratik).
+   */
+  isAllowed(chatId: string): boolean {
+    const raw = this.config.get<string>('ALLOWED_CHAT_IDS')?.trim();
+    if (!raw) return true;
+    return raw
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .includes(chatId);
   }
 
   // ---------------------------------------------------------------- commands
@@ -185,7 +211,44 @@ export class TelegramService {
     const m = t.match(/^(?:\/)?bakiye(?:m)?\s*([\d.,]+)?\s*(?:usdt)?$/);
     if (!m) return null;
     if (!m[1]) return NaN;
-    return parseFloat(m[1].replace(/,/g, '.'));
+    return this.parseAmount(m[1]);
+  }
+
+  /**
+   * Binlik ayraclarini dogru okur.
+   *
+   * Eski hali her virgulu ondalik ayraca ceviriyordu: "bakiye 1,000" ->
+   * "1.000" -> 1 USDT. Kullanici 1000 USDT yazmis oluyor, bot 1 USDT
+   * kaydediyor ve kill switch aniden devreye giriyordu.
+   *
+   * Kural: iki ayrac birden varsa SONUNCUSU ondalik ayractir. Tek tur ayrac
+   * varsa ve arkasindan tam 3 hane geliyorsa binlik ayractir.
+   */
+  parseAmount(raw: string): number {
+    const s = raw.trim();
+    const lastComma = s.lastIndexOf(',');
+    const lastDot = s.lastIndexOf('.');
+
+    if (lastComma !== -1 && lastDot !== -1) {
+      // Hangisi sondaysa ondalik ayractir, digeri binlik.
+      const decimalSep = lastComma > lastDot ? ',' : '.';
+      const groupSep = decimalSep === ',' ? '.' : ',';
+      return parseFloat(s.split(groupSep).join('').replace(decimalSep, '.'));
+    }
+
+    const sep = lastComma !== -1 ? ',' : lastDot !== -1 ? '.' : null;
+    if (sep === null) return parseFloat(s);
+
+    const parts = s.split(sep);
+    const tail = parts[parts.length - 1];
+
+    // "1,000" / "1.000" / "1,000,000" -> binlik ayrac
+    // "1,5" / "99.50" -> ondalik ayrac
+    const isGrouping =
+      parts.length > 1 && tail.length === 3 && parts[0].length <= 3;
+    return isGrouping
+      ? parseFloat(parts.join(''))
+      : parseFloat(s.replace(sep, '.'));
   }
 
   // ---------------------------------------------------------------- handlers
@@ -1044,7 +1107,15 @@ ${dirIcon} Yön: ${signal.direction.toUpperCase()}
    * is deliberately not used: model output routinely contains stray * and _
    * characters, and a parse failure would drop the whole message.
    */
-  async sendMessage(chatId: string, text: string): Promise<void> {
+  /**
+   * Gonderim basarili mi.
+   *
+   * Eskiden void donuyordu ve her hatayi sessizce yutuyordu; cagiran taraf
+   * kartin telefona ulasip ulasmadigini bilemiyordu. Sonuc: gonderim zaman
+   * asimina ugrasa bile sent_signals'a kayit atiliyor, 4 saatlik tekrar
+   * filtresi yaniyor ve o firsat 4 saat boyunca bir daha hic gorunmuyordu.
+   */
+  async sendMessage(chatId: string, text: string): Promise<boolean> {
     for (const chunk of this.splitMessage(text)) {
       try {
         await axios.post(
@@ -1068,9 +1139,10 @@ ${dirIcon} Yön: ${signal.direction.toUpperCase()}
             .catch(() => undefined);
           this.logger.warn(`Chat ${chatId} deactivated (bot blocked)`);
         }
-        return;
+        return false;
       }
     }
+    return true;
   }
 
   private splitMessage(text: string): string[] {

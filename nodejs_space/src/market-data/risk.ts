@@ -41,7 +41,13 @@ export function checkStopVsLiquidation(
   entry: number,
   stopLoss: number,
   leverage: number,
-): { ok: boolean; stopPct: number; liqPct: number; maxLeverage: number; reason?: string } {
+): {
+  ok: boolean;
+  stopPct: number;
+  liqPct: number;
+  maxLeverage: number;
+  reason?: string;
+} {
   const stopPct = (Math.abs(entry - stopLoss) / entry) * 100;
   const liqPct = liquidationDistancePct(leverage);
   const limit = liqPct * MAX_STOP_OF_LIQUIDATION;
@@ -86,7 +92,11 @@ export function checkRiskReward(
   const reward = Math.abs(takeProfit - entry);
 
   if (risk === 0) {
-    return { ok: false, ratio: 0, reason: 'Stop girişle aynı — risk hesaplanamaz.' };
+    return {
+      ok: false,
+      ratio: 0,
+      reason: 'Stop girişle aynı — risk hesaplanamaz.',
+    };
   }
 
   const ratio = reward / risk;

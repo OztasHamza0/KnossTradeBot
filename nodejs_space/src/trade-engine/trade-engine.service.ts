@@ -580,18 +580,50 @@ sadece comment'te neden reddettiğini yaz.`;
     return this.parseReview(raw, signal);
   }
 
+  /** Regex'lerin Turkce karakterle bozulmamasi icin ASCII'ye indirger. */
+  private normalizeTr(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/ı/g, 'i')
+      .replace(/İ/g, 'i')
+      .replace(/ş/g, 's')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c');
+  }
+
   parseReview(raw: string, original: TradeSignal): SignalReview {
     const fenced = raw.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     const bare = fenced ? null : raw.match(/\{[\s\S]*"verdict"[\s\S]*?\}/);
     const jsonText = fenced?.[1] ?? bare?.[0];
 
     if (!jsonText) {
-      this.logger.warn('Review response had no JSON; approving unchanged');
-      return {
-        verdict: 'approve',
-        signal: original,
-        comment: raw.trim().slice(0, 300),
-      };
+      // Denetci JSON uretmeyip duz metinle "bu islemi reddediyorum cunku..."
+      // yazabiliyor. Eskiden o metin ONAY YORUMU olarak karta yapistirilip
+      // gonderiliyordu — reddin kendisi tavsiye gibi gorunuyordu.
+      const t = this.normalizeTr(raw);
+      const looksLikeRejection =
+        /(reddet|reddediyorum|girilmemeli|acilmamali|onaylamiyorum|tavsiye etmem|uzak dur|riskli buluyorum|gecersiz)/.test(
+          t,
+        );
+
+      if (looksLikeRejection) {
+        this.logger.warn(
+          'Review had no JSON but reads as a rejection; rejecting',
+        );
+        return {
+          verdict: 'reject',
+          signal: null,
+          comment: raw.trim().slice(0, 300),
+        };
+      }
+
+      // Ne dedigi belirsiz: karti gecir ama metni ONAY GEREKCESI gibi sunma.
+      // Denetci bir kalite kapisi, guvenlik kapisi degil — validateSignal
+      // zaten arkada duruyor.
+      this.logger.warn('Review response had no JSON; approving without comment');
+      return { verdict: 'approve', signal: original, comment: '' };
     }
 
     try {
@@ -1292,7 +1324,10 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     // the pair at all. Requiring top-50 volume rank used to reject perfectly
     // tradable coins, which blocked research on anything outside the busiest
     // fifty.
-    if (market?.source === 'binance' && market.tradablePairs.length > 0) {
+    // Kaynak CoinGecko'ya dusse bile parite kontrolu kapanmamali: elimizde
+    // son basarili Binance cekiminden kalan liste var ve pariteler saatler
+    // icinde degismez. Eskiden yedege dusunce bu kontrol tamamen kapaniyordu.
+    if (market && market.tradablePairs.length > 0) {
       if (!market.tradablePairs.includes(signal.pair)) {
         return {
           valid: false,
@@ -1386,21 +1421,49 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     return price.toPrecision(4);
   }
 
+  /**
+   * Ayni firsatin tekrari mi.
+   *
+   * Iki ayri pencere var:
+   * - Ayni parite + ayni yon: 4 saat. Ayni karti tekrar gondermek spam.
+   * - Ayni parite + TERS yon: 1 saat. Once "BTCUSDT LONG", yarim saat sonra
+   *   "BTCUSDT SHORT" gondermek kullaniciya birbiriyle celisen iki emir
+   *   vermek demek. Gercek bir donus olabilir, o yuzden tamamen degil kisa
+   *   sureligine engelleniyor.
+   */
   private async isDuplicateSignal(
     chatId: string,
     pair: string,
     direction: string,
   ): Promise<boolean> {
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
-    const existing = await this.prisma.sent_signals.findFirst({
+    const now = Date.now();
+    const sameDirection = await this.prisma.sent_signals.findFirst({
       where: {
         chat_id: chatId,
         pair: pair.toUpperCase(),
         direction: direction.toUpperCase(),
-        created_at: { gte: fourHoursAgo },
+        created_at: { gte: new Date(now - 4 * 60 * 60 * 1000) },
       },
     });
-    return !!existing;
+    if (sameDirection) return true;
+
+    const opposite = direction.toUpperCase() === 'LONG' ? 'SHORT' : 'LONG';
+    const recentOpposite = await this.prisma.sent_signals.findFirst({
+      where: {
+        chat_id: chatId,
+        pair: pair.toUpperCase(),
+        direction: opposite,
+        created_at: { gte: new Date(now - 60 * 60 * 1000) },
+      },
+    });
+    if (recentOpposite) {
+      this.logger.warn(
+        `${pair} ${direction} suppressed: opposite ${opposite} sent within the hour`,
+      );
+      return true;
+    }
+
+    return false;
   }
 
   async getBalance(chatId: string): Promise<number | null> {

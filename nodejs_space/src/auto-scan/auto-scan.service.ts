@@ -204,14 +204,35 @@ export class AutoScanService {
     }
   }
 
-  /** Manual trigger: takes every chat regardless of interval, but still stamps. */
+  /**
+   * Manual trigger: skips the interval and quiet hours, but NOT scan_enabled.
+   *
+   * "nobet kapat" demis bir kullaniciya dis bir cron uzerinden tarama
+   * gondermek, komutu tamamen anlamsiz kilardi — force araliği atlamak
+   * icindir, kullanicinin kararini ezmek icin degil.
+   */
   private async claimAllChats(): Promise<string[]> {
     const chats = await this.prisma.active_chats.findMany({
       select: { chat_id: true },
     });
+    const states = await this.prisma.user_state.findMany({
+      where: { chat_id: { in: chats.map((c) => c.chat_id) } },
+      select: { chat_id: true, scan_enabled: true },
+    });
+    const disabled = new Set(
+      states.filter((st) => !st.scan_enabled).map((st) => st.chat_id),
+    );
+
+    const eligible = chats.filter((c) => !disabled.has(c.chat_id));
+    if (disabled.size > 0) {
+      this.logger.log(
+        `${disabled.size} sohbet nobeti kapatmis, force atlaniyor`,
+      );
+    }
+
     const now = new Date();
 
-    for (const { chat_id } of chats) {
+    for (const { chat_id } of eligible) {
       await this.prisma.user_state
         .upsert({
           where: { chat_id },
@@ -225,6 +246,6 @@ export class AutoScanService {
         );
     }
 
-    return chats.map((c) => c.chat_id);
+    return eligible.map((c) => c.chat_id);
   }
 }
