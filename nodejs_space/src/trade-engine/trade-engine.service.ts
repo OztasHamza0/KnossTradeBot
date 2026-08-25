@@ -5,7 +5,9 @@ import {
   MarketDataService,
   MarketOverview,
   CoinResearch,
+  CoinAnalysis,
 } from '../market-data/market-data.service';
+import { judgeStopDistance } from '../market-data/indicators';
 import axios from 'axios';
 
 export interface TradeSignal {
@@ -148,7 +150,15 @@ export class TradeEngineService {
       this.getChatHistory(chatId),
     ]);
 
-    const systemPrompt = this.buildSystemPrompt(market, instructions, balance);
+    // Sadece hareket edenler icin derin veri: 50 coinin hepsini cekmek
+    // gereksiz, ve zaten aday olmayanin analizine ihtiyac yok.
+    const movers = await this.marketData.getMoverAnalysis(market, 5);
+    const systemPrompt = this.buildSystemPrompt(
+      market,
+      instructions,
+      balance,
+      movers,
+    );
     const messages = this.buildMessages(
       systemPrompt,
       history,
@@ -166,7 +176,18 @@ export class TradeEngineService {
     const parsed = this.parseResponse(raw);
     if (!parsed.signal) return parsed;
 
-    const validation = this.validateSignal(parsed.signal, market, balance);
+    const analysis =
+      movers.find((m) => m.pair === parsed.signal!.pair) ??
+      (await this.marketData
+        .getCoinAnalysis(parsed.signal.pair)
+        .catch(() => null));
+
+    const validation = this.validateSignal(
+      parsed.signal,
+      market,
+      balance,
+      analysis?.atr1h ?? null,
+    );
     if (!validation.valid) {
       this.logger.warn(`Signal rejected: ${validation.reason}`);
       return {
@@ -227,6 +248,10 @@ export class TradeEngineService {
       (c) => Math.abs(c.price_change_percentage_1h) > 5,
     );
 
+    // Tarama modeli de derin veriyi gorsun: ucuz model olmasi korlemesine
+    // calismasi gerektigi anlamina gelmiyor.
+    const movers = await this.marketData.getMoverAnalysis(market, 5);
+
     for (const chatId of chatIds) {
       const balance = await this.getBalance(chatId);
       if (balance !== null && balance < MIN_BALANCE_USDT) {
@@ -260,6 +285,7 @@ export class TradeEngineService {
         market,
         instructions,
         balance,
+        movers,
       );
 
       const userMsg =
@@ -413,6 +439,13 @@ export class TradeEngineService {
       return { verdict: 'approve', signal, comment: '' };
     }
 
+    // Denetci karari gercek olcumlere dayansin: elinde tek bir yuzde varken
+    // "hareket etmis mi" sorusunun cevabi hep evet cikiyordu, cunku tarayici
+    // adaylari zaten hareket ettikleri icin seciyor.
+    const analysis = await this.marketData
+      .getCoinAnalysis(signal.pair, { withPositioning: true })
+      .catch(() => null);
+
     const coin = market.top50.find((c) => c.pair === signal.pair);
     const coinLine = coin
       ? `${coin.pair}: $${this.fmtPrice(coin.current_price)} | ` +
@@ -436,8 +469,13 @@ export class TradeEngineService {
     const systemPrompt = `Sen deneyimli bir risk yöneticisisin. Daha küçük bir model bir işlem
 önerisi üretti. Senin işin bunu onaylamak, düzeltmek ya da reddetmek.
 
-Sen fırsat aramıyorsun — önüne gelen öneriyi denetliyorsun. Şüpheci ol.
-Kullanıcı bu kartla GERÇEK PARA koyacak.
+Sen fırsat aramıyorsun — önüne gelen öneriyi denetliyorsun.
+Kullanıcı bu kartla GERÇEK PARA koyacak, o yüzden dikkatli ol.
+
+DENGELİ OL: Bir coinin yükselmiş olması tek başına ret sebebi DEĞİLDİR —
+trendler devam eder. Ret için somut bir gerekçe göster: ölçümlerde aşırı
+gerilme, yanlış yere konmuş stop, kalabalık pozisyonlanma, kötü risk/ödül.
+"Yükselmiş, o yüzden geç" yeterli bir gerekçe değil.
 
 📋 ÖNERİLEN İŞLEM:
 Parite      : ${signal.pair}
@@ -452,14 +490,23 @@ Gerekçe     : ${signal.reason}
 
 📊 PARİTENİN GÜNCEL DURUMU:
 ${coinLine}
+${
+  analysis
+    ? `
+📐 ÖLÇÜMLER:
+${this.formatAnalysis(analysis, true)}`
+    : ''
+}
 
 🌍 PİYASA: BTC ${market.btc ? `$${this.fmtPrice(market.btc.current_price)} (${market.btc.price_change_percentage_24h.toFixed(1)}%)` : '?'} | Fear & Greed ${market.fearGreed?.value ?? '?'}
 İlk 15: ${others}
 
 💰 Bakiye: ${balance ?? 'bildirilmemiş'} USDT${instructionsBlock}
 
-🔍 NELERİ SORGULA:
-1. Giriş mantıklı mı, yoksa hareket zaten olmuş da kovalamaca mı oluyor?
+🔍 NELERİ SORGULA (yukarıdaki ölçümlere bakarak, tahminle değil):
+1. Giriş mantıklı mı? Fiyat uzun vadeli aralığın tepesindeyse ve RSI
+   aşırı alımdaysa kovalamaca olur. Aralığın ortasında/altındaysa
+   yükselmiş olması sorun değildir.
 2. Stop-loss yerinde mi — çok sıkı (gürültüde süpürülür) ya da çok geniş mi?
 3. Risk/ödül oranı işe değer mi? En az 1:1.5 olmalı.
 4. Take-profit gerçekçi mi, yoksa hayal mi?
@@ -471,7 +518,8 @@ ${coinLine}
 - "revise"  → fikir doğru ama rakamlar düzeltilmeli (stop/hedef/kaldıraç)
 - "reject"  → bu işlem açılmamalı
 
-Reddetmekten çekinme. En iyi işlem çoğu zaman yapmadığın işlemdir.
+Gerekiyorsa reddet, ama gerekmiyorsa reddetme. Her öneriyi elemek de
+her öneriyi geçirmek kadar işe yaramaz bir denetçi demektir.
 
 Cevabını SADECE şu JSON ile ver:
 \`\`\`json
@@ -789,6 +837,7 @@ Türkçe, enerjik ama dürüst konuş. Sohbet ediyoruz — sinyal makinesi deği
     market: MarketOverview,
     instructions: string[],
     balance: number | null,
+    movers: CoinAnalysis[] = [],
   ): string {
     const px = (c: { current_price: number } | null) =>
       c ? `$${this.fmtPrice(c.current_price)}` : 'bilinmiyor';
@@ -846,6 +895,21 @@ ${coinTable || '(veri yok)'}
 
 ${sourceNote}
 
+${
+  movers.length
+    ? `🔬 EN HAREKETLİ COİNLERİN DERİN ANALİZİ:
+(Bunlar tek bir yüzdeye bakarak karar vermeni engellemek için var.
+Bir coin günlük pencerede ucuz, aylık pencerede tavana yapışık olabilir.)
+
+${movers
+  .map(
+    (m) => `▸ ${m.pair}
+${this.formatAnalysis(m)}`,
+  )
+  .join('\n\n')}
+`
+    : ''
+}
 ${balanceBlock}
 
 🚫 DEMİR KURALLAR (ASLA İHLAL ETME):
@@ -1074,6 +1138,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     signal: TradeSignal,
     market?: MarketOverview,
     balance?: number | null,
+    atrValue?: number | null,
   ): { valid: boolean; reason?: string } {
     if (!signal.pair) return { valid: false, reason: 'Parite belirtilmemiş.' };
 
@@ -1144,6 +1209,15 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       }
     }
 
+    // Oynakliga gore stop denetimi. Yon dogru olsa bile gurultude
+    // supurulecek bir stop, isabetli tahmini bile zararla kapatir.
+    if (atrValue !== null && atrValue !== undefined && atrValue > 0) {
+      const verdict = judgeStopDistance(entry, sl, atrValue);
+      if (!verdict.ok) {
+        return { valid: false, reason: verdict.reason };
+      }
+    }
+
     // Tradability, not popularity: the check is whether Binance Futures lists
     // the pair at all. Requiring top-50 volume rank used to reject perfectly
     // tradable coins, which blocked research on anything outside the busiest
@@ -1158,6 +1232,80 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     }
 
     return { valid: true };
+  }
+
+  /**
+   * Turns an analysis into prompt lines.
+   *
+   * Deliberately states what each number means. A model given "RSI 75" alone
+   * may or may not use it; given "RSI 75 (asiri alim)" it reliably does — and
+   * the whole point of adding these numbers is that they change the verdict.
+   */
+  formatAnalysis(a: CoinAnalysis, detailed = false): string {
+    const lines: string[] = [];
+
+    if (a.rsi1h !== null) {
+      const tag =
+        a.rsi1h >= 70 ? ' ← AŞIRI ALIM' : a.rsi1h <= 30 ? ' ← AŞIRI SATIM' : '';
+      lines.push(`RSI(1s): ${a.rsi1h.toFixed(0)}${tag}`);
+    }
+
+    for (const r of a.ranges) {
+      const tag =
+        r.posPct >= 85
+          ? ' ← TEPEYE YAPIŞIK'
+          : r.posPct <= 15
+            ? ' ← DİBE YAKIN'
+            : '';
+      lines.push(
+        `${r.label} aralığı: $${this.fmtPrice(r.low)}-$${this.fmtPrice(r.high)}, ` +
+          `fiyat %${r.posPct.toFixed(0)}'inde${tag}`,
+      );
+    }
+
+    if (a.atrPct !== null && a.atr1h !== null) {
+      lines.push(
+        `Oynaklık (ATR): saatte ±${a.atr1h.toFixed(4)} (%${a.atrPct.toFixed(2)}). ` +
+          `Stop en az ${(a.atr1h * 1.5).toFixed(4)} uzakta olmalı, ` +
+          `yoksa gürültüde süpürülür.`,
+      );
+    }
+
+    if (!detailed) return lines.join('\n');
+
+    if (a.fundingRate !== null) {
+      const pct = a.fundingRate * 100;
+      const tag =
+        pct > 0.05
+          ? ' ← LONGLAR KALABALIK, sıkışma riski'
+          : pct < -0.05
+            ? ' ← SHORTLAR kalabalık'
+            : ' (dengeli)';
+      lines.push(`Fonlama: %${pct.toFixed(4)}/8sa${tag}`);
+    }
+
+    if (a.openInterestChangePct !== null) {
+      const oi = a.openInterestChangePct;
+      const tag =
+        oi < -8
+          ? ' ← pozisyonlar kapanıyor, hareketin yakıtı bitiyor'
+          : oi > 8
+            ? ' ← yeni para giriyor'
+            : '';
+      lines.push(`Açık pozisyon (24s): %${oi.toFixed(1)}${tag}`);
+    }
+
+    if (a.longShortRatio !== null) {
+      const tag =
+        a.longShortRatio > 2
+          ? ' ← long tarafı çok kalabalık'
+          : a.longShortRatio < 0.6
+            ? ' ← short tarafı çok kalabalık'
+            : '';
+      lines.push(`Long/short oranı: ${a.longShortRatio.toFixed(2)}${tag}`);
+    }
+
+    return lines.join('\n');
   }
 
   private fmtPrice(price: number): string {

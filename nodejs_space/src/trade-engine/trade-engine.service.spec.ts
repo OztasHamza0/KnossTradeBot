@@ -378,7 +378,8 @@ describe('TradeEngineService.reviewSignal kisa devre', () => {
               : undefined,
       } as any,
       {} as any,
-      {} as any,
+      // Analiz alinamasa bile denetim yurumelidir.
+      { getCoinAnalysis: () => Promise.resolve(null) } as any,
     ) as any;
 
     engine.callLLM = () => Promise.reject(new Error('saglayici coktu'));

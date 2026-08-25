@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { toCandles, rsi, atr, rangePosition } from './indicators';
 
 export interface CoinData {
   /** Base symbol, uppercase — BTC, ETH, SOL */
@@ -35,6 +36,34 @@ export interface MarketOverview {
    */
   tradablePairs: string[];
   warnings: string[];
+}
+
+/**
+ * Bir paritenin coklu zaman dilimi ve futures pozisyonlanma resmi.
+ * Sadece aday coinler icin cekilir.
+ */
+export interface CoinAnalysis {
+  pair: string;
+  price: number;
+  /** 1 saatlik RSI(14). 70 uzeri asiri alim. */
+  rsi1h: number | null;
+  atr1h: number | null;
+  /** ATR'nin fiyata orani — stop mesafesi bunun katlariyla olculur. */
+  atrPct: number | null;
+  /** Farkli pencerelerde fiyatin dip-tepe araligindaki yeri. */
+  ranges: {
+    tf: string;
+    label: string;
+    low: number;
+    high: number;
+    posPct: number;
+  }[];
+  /** 8 saatlik fonlama orani; pozitif = longlar odiyor = kalabalik long. */
+  fundingRate: number | null;
+  /** 24 saatte acik pozisyon degisimi (%). */
+  openInterestChangePct: number | null;
+  /** Long/short hesap orani; 2 uzeri long tarafi kalabalik. */
+  longShortRatio: number | null;
 }
 
 /** Tek bir coin icin derin arastirma verisi — "arastir PEPE" komutu kullanir. */
@@ -175,6 +204,13 @@ export class MarketDataService {
     { data: CoinResearch; expiry: number }
   >();
   private readonly RESEARCH_TTL = 10 * 60 * 1000;
+
+  /** Gosterge hesaplari mum verisine dayanir; 1 saatlik mum o kadar sik degismez. */
+  private readonly analysisCache = new Map<
+    string,
+    { data: CoinAnalysis; expiry: number }
+  >();
+  private readonly ANALYSIS_TTL = 3 * 60 * 1000;
 
   async getMarketData(): Promise<MarketOverview> {
     if (this.cache && Date.now() < this.cacheExpiry) {
@@ -371,6 +407,198 @@ export class MarketDataService {
     ];
 
     return candidates.find((c) => market.tradablePairs.includes(c)) ?? null;
+  }
+
+  /**
+   * Deep read on one pair — the data the bot was missing.
+   *
+   * A single 24h change cannot tell "the move is starting" from "the move is
+   * over". These can: the same coin sat at 14% of its daily range and 86% of
+   * its quarterly range on the day it reversed.
+   *
+   * Only fetched for candidates, never for all fifty — a quiet scan costs
+   * nothing extra.
+   */
+  async getCoinAnalysis(
+    pair: string,
+    opts: { withPositioning?: boolean } = {},
+  ): Promise<CoinAnalysis | null> {
+    const key = `${pair}:${opts.withPositioning ? 'full' : 'lite'}`;
+    const hit = this.analysisCache.get(key);
+    if (hit && Date.now() < hit.expiry) return hit.data;
+
+    const windows: {
+      tf: string;
+      interval: string;
+      limit: number;
+      label: string;
+    }[] = [
+      { tf: '1s', interval: '1h', limit: 72, label: '3 gün' },
+      { tf: '4s', interval: '4h', limit: 120, label: '20 gün' },
+      { tf: '1g', interval: '1d', limit: 90, label: '3 ay' },
+    ];
+
+    const [klineResults, funding, oi, ls] = await Promise.all([
+      Promise.all(
+        windows.map((w) =>
+          this.binanceGet<any[][]>('/fapi/v1/klines', {
+            symbol: pair,
+            interval: w.interval,
+            limit: w.limit,
+          }).catch(() => null),
+        ),
+      ),
+      this.fetchFundingRate(pair),
+      opts.withPositioning ? this.fetchOpenInterestChange(pair) : null,
+      opts.withPositioning ? this.fetchLongShortRatio(pair) : null,
+    ]);
+
+    const hourly = klineResults[0] ? toCandles(klineResults[0]) : [];
+    if (hourly.length === 0) {
+      this.logger.warn(`No candles for ${pair}; analysis unavailable`);
+      return null;
+    }
+
+    const lastPrice = hourly[hourly.length - 1].close;
+    const atrValue = atr(hourly);
+
+    const ranges = windows
+      .map((w, i) => {
+        const candles = klineResults[i] ? toCandles(klineResults[i]!) : [];
+        const pos = rangePosition(candles, lastPrice);
+        return pos ? { tf: w.tf, label: w.label, ...pos } : null;
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    const analysis: CoinAnalysis = {
+      pair,
+      price: lastPrice,
+      rsi1h: rsi(hourly),
+      atr1h: atrValue,
+      atrPct: atrValue !== null ? (atrValue / lastPrice) * 100 : null,
+      ranges,
+      fundingRate: funding,
+      openInterestChangePct: oi,
+      longShortRatio: ls,
+    };
+
+    this.analysisCache.set(key, {
+      data: analysis,
+      expiry: Date.now() + this.ANALYSIS_TTL,
+    });
+    if (this.analysisCache.size > 100) {
+      const oldest = this.analysisCache.keys().next().value;
+      if (oldest) this.analysisCache.delete(oldest);
+    }
+
+    return analysis;
+  }
+
+  /**
+   * Analysis for the coins that actually moved.
+   *
+   * The scan prompt cannot carry fifty deep reads, and it does not need to:
+   * the only candidates worth judging are the ones with movement behind them.
+   */
+  async getMoverAnalysis(
+    market: MarketOverview,
+    count = 5,
+  ): Promise<CoinAnalysis[]> {
+    if (market.source !== 'binance' || market.top50.length === 0) return [];
+
+    const movers = [...market.top50]
+      .sort(
+        (a, b) =>
+          Math.abs(b.price_change_percentage_1h) -
+          Math.abs(a.price_change_percentage_1h),
+      )
+      .slice(0, count);
+
+    const results = await Promise.all(
+      movers.map((c) =>
+        this.getCoinAnalysis(c.pair).catch((e: any) => {
+          this.logger.warn(`Analysis failed for ${c.pair}: ${e?.message}`);
+          return null;
+        }),
+      ),
+    );
+
+    return results.filter((r): r is CoinAnalysis => r !== null);
+  }
+
+  /** Funding rate per 8h. Positive means longs pay shorts — the crowd is long. */
+  private async fetchFundingRate(pair: string): Promise<number | null> {
+    try {
+      const d = await this.binanceGet<any>('/fapi/v1/premiumIndex', {
+        symbol: pair,
+      });
+      const rate = parseFloat(d?.lastFundingRate);
+      return Number.isFinite(rate) ? rate : null;
+    } catch (e: any) {
+      this.logger.warn(`Funding rate failed for ${pair}: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 24h change in open interest.
+   *
+   * Price up with open interest up means new money is behind the move; price
+   * up with open interest down means positions are closing and the move is
+   * running out of fuel. The raw price change says neither.
+   */
+  private async fetchOpenInterestChange(pair: string): Promise<number | null> {
+    try {
+      const rows = await this.binanceGet<any[]>(
+        '/futures/data/openInterestHist',
+        { symbol: pair, period: '1h', limit: 24 },
+      );
+      if (!Array.isArray(rows) || rows.length < 2) return null;
+
+      const first = parseFloat(rows[0].sumOpenInterestValue);
+      const last = parseFloat(rows[rows.length - 1].sumOpenInterestValue);
+      if (!Number.isFinite(first) || first === 0) return null;
+
+      return ((last - first) / first) * 100;
+    } catch (e: any) {
+      this.logger.warn(`Open interest failed for ${pair}: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /** Ratio of accounts positioned long. Above ~2 the long side is crowded. */
+  private async fetchLongShortRatio(pair: string): Promise<number | null> {
+    try {
+      const rows = await this.binanceGet<any[]>(
+        '/futures/data/globalLongShortAccountRatio',
+        { symbol: pair, period: '1h', limit: 1 },
+      );
+      const ratio = parseFloat(rows?.[0]?.longShortRatio);
+      return Number.isFinite(ratio) ? ratio : null;
+    } catch (e: any) {
+      this.logger.warn(`Long/short ratio failed for ${pair}: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /** Binance Futures GET with the same host failover as the ticker fetch. */
+  private async binanceGet<T>(
+    path: string,
+    params: Record<string, any>,
+  ): Promise<T> {
+    let lastError: any;
+    for (const host of this.BINANCE_HOSTS) {
+      try {
+        const resp = await axios.get<T>(`${host}${path}`, {
+          params,
+          timeout: 15000,
+        });
+        return resp.data;
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error(`Binance unreachable: ${path}`);
   }
 
   private async fetchFreshData(): Promise<MarketOverview> {
