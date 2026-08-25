@@ -5,6 +5,11 @@
  * Bot bunlar olmadan tek bir sayiya ("24s degisim") bakip karar vermeye
  * calisiyordu ve "hareket etmis" ile "hareket zaten bitmis" arasindaki farki
  * goremiyordu.
+ *
+ * ONEMLI: Binance'in dondurdugu son mum HENUZ KAPANMAMISTIR. Gostergeler
+ * kapanmis mumlardan hesaplanir; kapanmamis mum yalniz "guncel fiyat" olarak
+ * kullanilir. Aksi halde daha olusmakta olan bir mum, sert bir kabul/red
+ * esigini besleyen sayilari oynatir.
  */
 
 /** Binance klines dizisinden ihtiyacimiz olan alanlar. */
@@ -28,6 +33,11 @@ export function toCandles(raw: any[][]): Candle[] {
         Number.isFinite(c.low) &&
         Number.isFinite(c.close),
     );
+}
+
+/** Son (kapanmamis) mumu dusurur. Gosterge hesaplari bunu kullanir. */
+export function closedOnly(candles: Candle[]): Candle[] {
+  return candles.length > 1 ? candles.slice(0, -1) : candles;
 }
 
 /**
@@ -64,7 +74,12 @@ export function rsi(candles: Candle[], period = 14): number | null {
 }
 
 /**
- * Average True Range — gercek oynaklik.
+ * Wilder ATR — gercek oynaklik.
+ *
+ * Duz ortalama degil Wilder yumusatmasi kullanir: tek bir uc mum sayiyi
+ * 14 mum boyunca esit agirlikta tasiyip sonra aniden birakmaz. Bu deger
+ * sert bir kabul/red esigini besliyor (stop 1 ATR'den yakin olamaz),
+ * o yuzden sicramamasi onemli.
  *
  * Stop mesafesi buna gore konmali: coin saatte %2.3 oynuyorsa %1'lik stop
  * gurultude supurulur, isabetli tahmin bile zararla kapanir.
@@ -72,48 +87,72 @@ export function rsi(candles: Candle[], period = 14): number | null {
 export function atr(candles: Candle[], period = 14): number | null {
   if (candles.length < period + 1) return null;
 
-  let sum = 0;
-  for (let i = candles.length - period; i < candles.length; i++) {
+  const trueRanges: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
     const prevClose = candles[i - 1].close;
-    const trueRange = Math.max(
-      candles[i].high - candles[i].low,
-      Math.abs(candles[i].high - prevClose),
-      Math.abs(candles[i].low - prevClose),
+    trueRanges.push(
+      Math.max(
+        candles[i].high - candles[i].low,
+        Math.abs(candles[i].high - prevClose),
+        Math.abs(candles[i].low - prevClose),
+      ),
     );
-    sum += trueRange;
   }
-  return sum / period;
+
+  if (trueRanges.length < period) return null;
+
+  // Ilk deger basit ortalama, sonrasi Wilder yumusatmasi.
+  let value = trueRanges.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trueRanges.length; i++) {
+    value = (value * (period - 1) + trueRanges[i]) / period;
+  }
+  return value;
 }
 
 export interface RangePosition {
   low: number;
   high: number;
-  /** Fiyatin aralik icindeki yeri: 0 = dip, 100 = tepe. */
+  /**
+   * Fiyatin aralik icindeki yeri: 0 = dip, 100 = tepe.
+   * 100'un ustu = yerlesik araligin USTUNE kirilim,
+   * 0'in alti = araligin ALTINA kirilim.
+   */
   posPct: number;
+  /** Fiyat yerlesik araligin disina ciktiysa hangi yone. */
+  breakout: 'above' | 'below' | null;
 }
 
 /**
- * Fiyatin verilen penceredeki dip-tepe araliginda nerede durdugu.
+ * Fiyatin, KENDISI HARIC olusmus aralikta nerede durdugu.
  *
- * Ayni coin ayni anda gunluk pencerede %14 (ucuz), 3 aylik pencerede %86
- * (pahali) olabilir — AAVE'de tam olarak bu oldu. Tek pencereye bakmak bu
- * yuzden yaniltici.
+ * Onceki hali kendi kendine referansliydi: guncel fiyat, icinde
+ * konumlandirildigi pencerenin high/low'una kendisi katki yapiyordu. Sonuc:
+ * her yeni zirve otomatik olarak %100 ve "TEPEYE YAPISIK" cikiyordu — yani
+ * yerlesik bir tavana dayanmak ile o tavani kirmak ayni sinyali veriyordu.
+ * Oysa bunlar zit anlamlar tasir: biri direnc, digeri kirilim.
+ *
+ * Simdi aralik gecmis mumlardan kuruluyor ve guncel fiyat onun icine
+ * yerlestiriliyor; disari tasarsa kirpilmiyor, kirilim olarak bildiriliyor.
  */
 export function rangePosition(
   candles: Candle[],
   lastPrice: number,
 ): RangePosition | null {
-  if (candles.length === 0) return null;
+  // Aralik, guncel fiyatin ait oldugu mum HARIC olusan mumlardan kurulur.
+  const history = closedOnly(candles);
+  if (history.length === 0) return null;
 
-  const high = Math.max(...candles.map((c) => c.high));
-  const low = Math.min(...candles.map((c) => c.low));
+  const high = Math.max(...history.map((c) => c.high));
+  const low = Math.min(...history.map((c) => c.low));
 
-  // Duz bir aralikta bolme tanimsiz; ortada kabul et.
-  if (high === low) return { low, high, posPct: 50 };
+  if (high === low) {
+    return { low, high, posPct: 50, breakout: null };
+  }
 
   const posPct = ((lastPrice - low) / (high - low)) * 100;
-  // Fiyat pencerenin disina tasmis olabilir (son mum henuz kapanmadi).
-  return { low, high, posPct: Math.max(0, Math.min(100, posPct)) };
+  const breakout = posPct > 100 ? 'above' : posPct < 0 ? 'below' : null;
+
+  return { low, high, posPct, breakout };
 }
 
 /**

@@ -4,6 +4,7 @@ const stubConfig: any = { get: () => undefined };
 const stubPrisma: any = {};
 const stubEngine: any = {};
 const stubMarket: any = {};
+const stubOutcome: any = { performanceFor: () => Promise.resolve({}) };
 
 describe('TelegramService command routing', () => {
   let service: any;
@@ -14,6 +15,7 @@ describe('TelegramService command routing', () => {
       stubPrisma,
       stubEngine,
       stubMarket,
+      stubOutcome,
     );
   });
 

@@ -31,15 +31,30 @@ model user_instructions {
   @@index([chat_id])
 }
 
+/// Gonderilen kartlar ve SONUCLARI.
+///
+/// Once yalnizca kartin kendisi kaydediliyordu; ne oldugu hic olculmuyordu.
+/// Bu yuzden "bot ise yariyor mu" sorusunun olculebilir bir cevabi yoktu ve
+/// bot aylarca zarar ettiriyor olsa veride bunu gosterecek hicbir sey olmazdi.
 model sent_signals {
   id          Int      @id @default(autoincrement())
   chat_id     String
   pair        String
   direction   String
   entry_price Float
+  /// Sonuc olcumu icin gerekli: kart gonderildigi andaki stop ve hedef.
+  stop_loss   Float?
+  take_profit Float?
+  leverage    Float?
+  /// open | tp | sl | expired | unknown
+  status      String   @default("open")
+  /// Sonucun olculdugu an ve fiyat.
+  closed_at   DateTime?
+  closed_price Float?
   created_at  DateTime @default(now())
 
   @@index([chat_id, pair, direction, created_at])
+  @@index([status, created_at])
 }
 
 model active_chats {

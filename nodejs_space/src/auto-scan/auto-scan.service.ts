@@ -185,6 +185,13 @@ export class AutoScanService {
             pair: response.signal.pair.toUpperCase(),
             direction: response.signal.direction.toUpperCase(),
             entry_price: this.tradeEngine.parseNum(response.signal.entry) || 0,
+            stop_loss:
+              this.tradeEngine.parseNum(response.signal.stopLoss) || null,
+            take_profit:
+              this.tradeEngine.parseNum(response.signal.takeProfit) || null,
+            leverage:
+              parseFloat(response.signal.leverage.match(/[\d.]+/)?.[0] ?? '') ||
+              null,
           },
         });
 

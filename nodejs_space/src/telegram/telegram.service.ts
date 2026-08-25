@@ -16,6 +16,7 @@ import {
   MAX_SCAN_INTERVAL,
   DEFAULT_SCAN_INTERVAL,
 } from '../auto-scan/auto-scan.constants';
+import { OutcomeTrackerService } from '../auto-scan/outcome-tracker.service';
 import axios from 'axios';
 
 /** "sessiz" komutunun ayristirilmis hali. */
@@ -39,6 +40,7 @@ export class TelegramService {
     private readonly prisma: PrismaService,
     private readonly tradeEngine: TradeEngineService,
     private readonly marketData: MarketDataService,
+    private readonly outcomeTracker: OutcomeTrackerService,
   ) {
     this.botToken = this.config.get<string>('TELEGRAM_BOT_TOKEN') ?? '';
     this.apiBase = `https://api.telegram.org/bot${this.botToken}`;
@@ -88,6 +90,8 @@ export class TelegramService {
         await this.handleBalance(chatId, this.matchBalanceCommand(text)!);
       } else if (this.isWatchCommand(text)) {
         await this.handleWatch(chatId, text);
+      } else if (this.isPerformanceCommand(text)) {
+        await this.handlePerformance(chatId);
       } else if (this.isCreditCommand(text)) {
         await this.handleCredit(chatId);
       } else if (this.isQuietCommand(text)) {
@@ -112,6 +116,88 @@ export class TelegramService {
       );
       await this.sendMessage(chatId, '❌ Bir hata oluştu, tekrar dene dostum!');
     }
+  }
+
+  isPerformanceCommand(text: string): boolean {
+    return /^(?:\/)?(performans|istatistik|skor|basari)$/.test(
+      this.normalize(text),
+    );
+  }
+
+  /**
+   * "performans" — botun kendi karnesi.
+   *
+   * Isabet orani tek basina yaniltici: %70 isabetle de para kaybedilir eger
+   * kayiplar kazanclardan buyukse. O yuzden R toplami da gosteriliyor —
+   * pozitif R, strateji bazinda kazandirdigi anlamina gelir.
+   */
+  private async handlePerformance(chatId: string): Promise<void> {
+    const { summary, recent, unmeasurable } =
+      await this.outcomeTracker.performanceFor(chatId);
+
+    if (summary.total === 0) {
+      await this.sendMessage(
+        chatId,
+        '📊 Henüz gönderilmiş işlem kartı yok. İlk kartlardan sonra burada karneni görürsün.',
+      );
+      return;
+    }
+
+    const closed = summary.wins + summary.losses;
+    const lines = [
+      '📊 PERFORMANS KARNESİ',
+      '',
+      `Toplam kart   : ${summary.total}`,
+      `Kapanan       : ${closed}  (✅ ${summary.wins} / ❌ ${summary.losses})`,
+      `Hâlâ açık     : ${summary.open}`,
+      `Süresi doldu  : ${summary.expired}`,
+    ];
+
+    if (summary.winRatePct !== null) {
+      lines.push('', `🎯 İsabet oranı: %${summary.winRatePct.toFixed(0)}`);
+    }
+
+    if (summary.avgR !== null) {
+      lines.push(
+        `📈 Toplam R: ${summary.totalR >= 0 ? '+' : ''}${summary.totalR.toFixed(2)}`,
+        `📊 İşlem başına ortalama: ${summary.avgR >= 0 ? '+' : ''}${summary.avgR.toFixed(2)}R`,
+        '',
+        summary.totalR > 0
+          ? '💪 R bazında pozitif — bu kartları takip etmek kazandırmış.'
+          : '⚠️ R bazında negatif — bu kartları takip etmek kaybettirmiş.',
+      );
+    }
+
+    if (closed < 20) {
+      lines.push(
+        '',
+        `⚠️ Sadece ${closed} kapanmış işlem var. Bu sayı istatistiksel olarak ` +
+          `anlamlı değil — şans ile beceri ayırt edilemez. En az 30-50 işlem gerekir.`,
+      );
+    }
+
+    if (unmeasurable > 0) {
+      lines.push(
+        '',
+        `ℹ️ ${unmeasurable} eski kartın stop/hedefi kaydedilmemiş, ölçüme dahil değil.`,
+      );
+    }
+
+    if (recent.length > 0) {
+      const icon = (s: string) =>
+        s === 'tp' ? '✅' : s === 'sl' ? '❌' : s === 'expired' ? '⏱️' : '⏳';
+      lines.push(
+        '',
+        '🕐 Son kartlar:',
+        ...recent.map(
+          (r) =>
+            `  ${icon(r.status)} ${r.pair} ${r.direction} — ` +
+            `${r.createdAt.toLocaleDateString('tr-TR')}`,
+        ),
+      );
+    }
+
+    await this.sendMessage(chatId, lines.join('\n'));
   }
 
   /**
@@ -271,6 +357,7 @@ export class TelegramService {
 • "araştır PEPE" → Bir coini derinlemesine incele
 • "sessiz 00-08" → Uyurken tarama yapma
 • "kredi" → OpenRouter harcamanı göster
+• "performans" → Kartların isabet oranı ve karnesi
 • 📸 Ekran görüntüsü gönder → Analiz ederim
 
 💡 Kalıcı talimat verebilirsin:
@@ -694,10 +781,17 @@ Nöbet taramaları ücretsiz modelde, faturaya girmiyor.
     }
     if (result?.response.signal) {
       const card = this.formatTradeCard(result.response.signal);
-      await this.sendMessage(
+      const sent = await this.sendMessage(
         chatId,
         `🔔 OTOMATİK NÖBET SİNYALİ\n\n${result.response.text ? `${result.response.text}\n\n` : ''}${card}`,
       );
+
+      // Test de olsa gonderilen kart gercek bir karttir. Kaydedilmezse
+      // tekrar filtresi devreye girmez ve ayni kart dakikalar sonra
+      // otomatik nobetten bir kez daha gelir.
+      if (sent) {
+        await this.recordSignal(chatId, result.response.signal);
+      }
     }
 
     const wouldSend = Boolean(result?.alert || result?.response.signal);
@@ -1067,21 +1161,53 @@ Günde ~${perDay} tarama yapacağım.${warning}`,
     if (result.signal) {
       const card = this.formatTradeCard(result.signal);
       responseText = result.text ? `${result.text}\n\n${card}` : card;
-
-      await this.prisma.sent_signals.create({
-        data: {
-          chat_id: chatId,
-          pair: result.signal.pair.toUpperCase(),
-          direction: result.signal.direction.toUpperCase(),
-          entry_price: this.tradeEngine.parseNum(result.signal.entry) || 0,
-        },
-      });
     }
 
     if (!responseText.trim()) return;
 
-    await this.sendMessage(chatId, responseText);
+    const sent = await this.sendMessage(chatId, responseText);
+    if (!sent) {
+      this.logger.error(
+        `Result for ${chatId} was NOT delivered; nothing recorded.`,
+      );
+      return;
+    }
+
     await this.saveChatMessage(chatId, 'assistant', responseText);
+
+    // Kayit gonderimden SONRA: ulasmayan bir kart hem "gonderdim" diye
+    // sayilmamali hem de 4 saatlik tekrar filtresini yakmamali.
+    if (result.signal) {
+      await this.recordSignal(chatId, result.signal);
+    }
+  }
+
+  /**
+   * Gonderilen karti sonuc olcumu icin kaydeder.
+   *
+   * Stop ve hedef de yaziliyor: onlarsiz kartin tuttugu mu tutmadigi mi
+   * sonradan olculemez, ve "bot ise yariyor mu" sorusu cevapsiz kalir.
+   */
+  private async recordSignal(
+    chatId: string,
+    signal: TradeSignal,
+  ): Promise<void> {
+    await this.prisma.sent_signals
+      .create({
+        data: {
+          chat_id: chatId,
+          pair: signal.pair.toUpperCase(),
+          direction: signal.direction.toUpperCase(),
+          entry_price: this.tradeEngine.parseNum(signal.entry) || 0,
+          stop_loss: this.tradeEngine.parseNum(signal.stopLoss) || null,
+          take_profit: this.tradeEngine.parseNum(signal.takeProfit) || null,
+          leverage:
+            parseFloat(signal.leverage.match(/[\d.]+/)?.[0] ?? '') || null,
+        },
+      })
+      .catch((e: any) =>
+        this.logger.error(`recordSignal failed: ${e?.message}`),
+      );
   }
 
   formatTradeCard(signal: TradeSignal): string {

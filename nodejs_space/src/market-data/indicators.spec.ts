@@ -1,5 +1,6 @@
 import {
   toCandles,
+  closedOnly,
   rsi,
   atr,
   rangePosition,
@@ -86,13 +87,15 @@ describe('atr', () => {
 });
 
 describe('rangePosition', () => {
-  const candles = [c(200, 100, 150), c(180, 120, 160)];
+  // Son mum kapanmamis sayilir ve araliga KATILMAZ; aralik ondan onceki
+  // mumlardan kurulur. Asagida son eleman her zaman "guncel mum".
+  const candles = [c(200, 100, 150), c(180, 120, 160), c(0, 0, 0)];
 
-  it('reports the top of the range', () => {
+  it('reports the top of the established range', () => {
     expect(rangePosition(candles, 200)!.posPct).toBe(100);
   });
 
-  it('reports the bottom of the range', () => {
+  it('reports the bottom of the established range', () => {
     expect(rangePosition(candles, 100)!.posPct).toBe(0);
   });
 
@@ -100,10 +103,33 @@ describe('rangePosition', () => {
     expect(rangePosition(candles, 150)!.posPct).toBe(50);
   });
 
-  // Son mum henuz kapanmadigi icin fiyat pencerenin disina tasabilir.
-  it('clamps a price outside the window', () => {
-    expect(rangePosition(candles, 250)!.posPct).toBe(100);
-    expect(rangePosition(candles, 50)!.posPct).toBe(0);
+  // Eski hali kendi kendine referansliydi: guncel fiyat kendi penceresinin
+  // high/low'una katki yapiyor, her yeni zirve otomatik %100 ve "tepeye
+  // yapisik" cikiyordu. Yerlesik bir tavana dayanmak ile onu kirmak zit
+  // anlamlar tasir.
+  it('reports a break above the range instead of clamping to 100', () => {
+    const r = rangePosition(candles, 250)!;
+    expect(r.posPct).toBeGreaterThan(100);
+    expect(r.breakout).toBe('above');
+  });
+
+  it('reports a break below the range', () => {
+    const r = rangePosition(candles, 50)!;
+    expect(r.posPct).toBeLessThan(0);
+    expect(r.breakout).toBe('below');
+  });
+
+  it('reports no breakout while price is inside the range', () => {
+    expect(rangePosition(candles, 150)!.breakout).toBeNull();
+    expect(rangePosition(candles, 200)!.breakout).toBeNull();
+  });
+
+  it('does not let the current candle widen its own range', () => {
+    // Guncel mum 500'e ciksa bile aralik gecmisten kurulur.
+    const withSpike = [c(200, 100, 150), c(180, 120, 160), c(500, 90, 480)];
+    const r = rangePosition(withSpike, 480)!;
+    expect(r.high).toBe(200);
+    expect(r.breakout).toBe('above');
   });
 
   it('treats a flat range as the middle rather than dividing by zero', () => {
@@ -113,6 +139,34 @@ describe('rangePosition', () => {
 
   it('returns null with no candles', () => {
     expect(rangePosition([], 100)).toBeNull();
+  });
+});
+
+describe('closedOnly', () => {
+  it('drops the still-forming candle', () => {
+    const cs = [c(1, 1, 1), c(2, 2, 2), c(3, 3, 3)];
+    expect(closedOnly(cs)).toHaveLength(2);
+    expect(closedOnly(cs)[1].close).toBe(2);
+  });
+
+  it('keeps a single candle rather than returning nothing', () => {
+    expect(closedOnly([c(1, 1, 1)])).toHaveLength(1);
+  });
+});
+
+describe('atr Wilder yumusatmasi', () => {
+  // Duz ortalamada tek bir uc mum 14 mum boyunca esit agirlikta tasinir ve
+  // sonra aniden birakilir; bu deger sert bir kabul/red esigini besliyor.
+  it('does not let one spike dominate for exactly 14 bars then vanish', () => {
+    const calm = Array.from({ length: 40 }, () => c(101, 99, 100));
+    const withSpike = [...calm];
+    withSpike[20] = c(140, 60, 100);
+
+    const a = atr(withSpike)!;
+    const base = atr(calm)!;
+    // Sicrama etkisi hala hissediliyor ama sonsuza kadar degil
+    expect(a).toBeGreaterThan(base);
+    expect(a).toBeLessThan(base * 3);
   });
 });
 

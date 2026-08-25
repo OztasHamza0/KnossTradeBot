@@ -622,7 +622,9 @@ sadece comment'te neden reddettiğini yaz.`;
       // Ne dedigi belirsiz: karti gecir ama metni ONAY GEREKCESI gibi sunma.
       // Denetci bir kalite kapisi, guvenlik kapisi degil — validateSignal
       // zaten arkada duruyor.
-      this.logger.warn('Review response had no JSON; approving without comment');
+      this.logger.warn(
+        'Review response had no JSON; approving without comment',
+      );
       return { verdict: 'approve', signal: original, comment: '' };
     }
 
@@ -1356,12 +1358,18 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     }
 
     for (const r of a.ranges) {
+      // Kirilim ile tavana dayanmak zit anlamlar tasir: biri direnc, digeri
+      // o direncin asilmasi. Ayni etiketi vermek ikisini karistirirdi.
       const tag =
-        r.posPct >= 85
-          ? ' ← TEPEYE YAPIŞIK'
-          : r.posPct <= 15
-            ? ' ← DİBE YAKIN'
-            : '';
+        r.breakout === 'above'
+          ? ' ← YERLEŞİK ARALIĞIN ÜSTÜNE KIRILIM'
+          : r.breakout === 'below'
+            ? ' ← ARALIĞIN ALTINA KIRILIM'
+            : r.posPct >= 85
+              ? ' ← TEPEYE YAPIŞIK (henüz kırmadı)'
+              : r.posPct <= 15
+                ? ' ← DİBE YAKIN'
+                : '';
       lines.push(
         `${r.label} aralığı: $${this.fmtPrice(r.low)}-$${this.fmtPrice(r.high)}, ` +
           `fiyat %${r.posPct.toFixed(0)}'inde${tag}`,

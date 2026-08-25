@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { toCandles, rsi, atr, rangePosition } from './indicators';
+import { toCandles, closedOnly, rsi, atr, rangePosition } from './indicators';
 
 export interface CoinData {
   /** Base symbol, uppercase — BTC, ETH, SOL */
@@ -57,7 +57,9 @@ export interface CoinAnalysis {
     label: string;
     low: number;
     high: number;
+    /** 100'un ustu / 0'in alti = yerlesik araligin disina kirilim. */
     posPct: number;
+    breakout: 'above' | 'below' | null;
   }[];
   /** 8 saatlik fonlama orani; pozitif = longlar odiyor = kalabalik long. */
   fundingRate: number | null;
@@ -478,8 +480,10 @@ export class MarketDataService {
       return null;
     }
 
+    // Guncel fiyat kapanmamis mumdan, gostergeler kapanmis mumlardan.
     const lastPrice = hourly[hourly.length - 1].close;
-    const atrValue = atr(hourly);
+    const closed = closedOnly(hourly);
+    const atrValue = atr(closed);
 
     const ranges = windows
       .map((w, i) => {
@@ -492,7 +496,7 @@ export class MarketDataService {
     const analysis: CoinAnalysis = {
       pair,
       price: lastPrice,
-      rsi1h: rsi(hourly),
+      rsi1h: rsi(closed),
       atr1h: atrValue,
       atrPct: atrValue !== null ? (atrValue / lastPrice) * 100 : null,
       ranges,
@@ -546,6 +550,24 @@ export class MarketDataService {
     );
 
     return results.filter((r): r is CoinAnalysis => r !== null);
+  }
+
+  /**
+   * Bir andan itibaren olusan mumlar — sonuc olcumu icin.
+   *
+   * Anlik fiyata bakmak yetmez: fiyat once stopa dokunup sonra hedefe gitmis
+   * olabilir. Sirali mum verisi hangisine once dokunuldugunu gosterir.
+   *
+   * 5 dakikalik mum kullaniliyor: 1 saatlik mumda ayni mum icinde hem stop
+   * hem hedef gorulme ihtimali cok daha yuksek ve o durumda sira bilinemiyor.
+   */
+  async getCandlesSince(pair: string, since: Date): Promise<any[][]> {
+    return this.binanceGet<any[][]>('/fapi/v1/klines', {
+      symbol: pair,
+      interval: '5m',
+      startTime: since.getTime(),
+      limit: 1000,
+    });
   }
 
   /** Funding rate per 8h. Positive means longs pay shorts — the crowd is long. */
