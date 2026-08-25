@@ -46,6 +46,8 @@ model sent_signals {
   stop_loss   Float?
   take_profit Float?
   leverage    Float?
+  /// Toplam maruziyet hesabi icin: bu kartin bagladigi margin.
+  margin_usdt Float?
   /// open | tp | sl | expired | unknown
   status      String   @default("open")
   /// Sonucun olculdugu an ve fiyat.

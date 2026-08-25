@@ -356,10 +356,15 @@ describe('TradeEngineService.parseReview', () => {
 });
 
 describe('TradeEngineService.reviewSignal kisa devre', () => {
-  it('skips the review when no separate watch model is configured', async () => {
+  it('DISABLE_SIGNAL_REVIEW=true ise denetimi atlar', async () => {
     const engine = new TradeEngineService(
       {
-        get: (k: string) => (k === 'LLM_MODEL' ? 'ayni-model' : undefined),
+        get: (k: string) =>
+          k === 'LLM_MODEL'
+            ? 'ayni-model'
+            : k === 'DISABLE_SIGNAL_REVIEW'
+              ? 'true'
+              : undefined,
       } as any,
       {} as any,
       {} as any,

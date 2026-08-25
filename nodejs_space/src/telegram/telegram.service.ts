@@ -17,6 +17,7 @@ import {
   DEFAULT_SCAN_INTERVAL,
 } from '../auto-scan/auto-scan.constants';
 import { OutcomeTrackerService } from '../auto-scan/outcome-tracker.service';
+import { normalizeTr } from '../common/turkish';
 import axios from 'axios';
 
 /** "sessiz" komutunun ayristirilmis hali. */
@@ -217,20 +218,11 @@ export class TelegramService {
   // ---------------------------------------------------------------- commands
 
   /**
-   * Turkish text is normalised to ASCII so a single pattern matches
-   * "var mı?", "VAR MI" and "var mi".
+   * Turkce metni ASCII'ye indirger; ortak yardimciya delege eder.
+   * Tek kopya olmasi onemli — bkz. src/common/turkish.ts.
    */
   private normalize(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/ı/g, 'i')
-      .replace(/İ/g, 'i')
-      .replace(/ş/g, 's')
-      .replace(/ğ/g, 'g')
-      .replace(/ü/g, 'u')
-      .replace(/ö/g, 'o')
-      .replace(/ç/g, 'c')
-      .trim();
+    return normalizeTr(text);
   }
 
   /**
@@ -701,6 +693,21 @@ sen yazmadan gelen taramalar durur.`,
 
       const usd = (n: number) => `$${n.toFixed(4)}`;
 
+      // Bu satir eskiden sabit olarak "nobet taramalari ucretsiz modelde,
+      // faturaya girmiyor" diyordu. LLM_MODEL_WATCH tanimli degilse nobet de
+      // KARAR modelinde kosuyor ve faturaya giriyor — yani mesaj gercegin
+      // tam tersini soyluyordu. Artik ayarin kendisine bakiyor.
+      const decisionModel =
+        this.config.get<string>('LLM_MODEL') ?? 'claude-fable-5';
+      const watchModel = this.config.get<string>('LLM_MODEL_WATCH')?.trim();
+      const watchNote = watchModel
+        ? `🔭 Nöbet modeli: ${watchModel}\n🧠 Karar modeli: ${decisionModel}\n` +
+          `Nöbet taramaları ucuz modelde; sadece sinyal çıkarsa karar modeli devreye giriyor.`
+        : `⚠️ LLM_MODEL_WATCH tanımlı değil — nöbet taramaları da karar modelinde ` +
+          `(${decisionModel}) koşuyor ve faturaya giriyor.\n` +
+          `Ucuz bir nöbet modeli tanımlarsan hem maliyet düşer hem ikinci ` +
+          `değerlendirme katmanı devreye girer.`;
+
       // Olculen ortalama: bir Opus taramasi ~10 sent (dusunme dahil).
       const perCall = 0.1;
       const callsLeft =
@@ -722,8 +729,7 @@ Kalan bakiye: https://openrouter.ai/settings/credits`
 }
 
 ℹ️ Ölçülen ortalama: bir "tara" ≈ 10 sent (düşünme dahil).
-Nöbet taramaları ücretsiz modelde, faturaya girmiyor.
-"nöbet test" de ücretsiz — istediğin kadar kullan.`,
+${watchNote}`,
       );
     } catch (error: any) {
       const status = error?.response?.status;
@@ -1203,6 +1209,8 @@ Günde ~${perDay} tarama yapacağım.${warning}`,
           take_profit: this.tradeEngine.parseNum(signal.takeProfit) || null,
           leverage:
             parseFloat(signal.leverage.match(/[\d.]+/)?.[0] ?? '') || null,
+          // Toplam maruziyet hesabi bunu okuyor.
+          margin_usdt: this.tradeEngine.parseNum(signal.margin) || null,
         },
       })
       .catch((e: any) =>

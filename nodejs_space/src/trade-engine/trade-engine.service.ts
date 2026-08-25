@@ -12,7 +12,9 @@ import {
   checkStopVsLiquidation,
   checkRiskReward,
   checkEntryNearMarket,
+  checkRiskPerTrade,
 } from '../market-data/risk';
+import { normalizeTr as normalizeTurkish } from '../common/turkish';
 import axios from 'axios';
 
 export interface TradeSignal {
@@ -62,6 +64,20 @@ export interface SignalReview {
 export const MIN_BALANCE_USDT = 50;
 /** Position size ceiling as a fraction of balance. */
 export const MAX_POSITION_RATIO = 0.5;
+/**
+ * Bakiye bildirilmemisken varsayilan tavan.
+ *
+ * Prompt zaten "bakiye bilinmiyorsa 100 USDT varsay" diyordu ama KODDA
+ * karsiligi yoktu: balance null olunca margin tavani da kill switch de
+ * ayni if blogunda atlaniyordu. Yani bakiyesini hic yazmamis (ya da
+ * "BAKİYE 100" yazip komutu normalize hatasina takilmis) bir kullanici
+ * icin boyutlandirma denetimi tamamen kapaliydi.
+ */
+export const ASSUMED_BALANCE_USDT = 100;
+/** Tek bir islemde bakiyenin riske atilabilecek azami yuzdesi. */
+export const MAX_RISK_PCT_PER_TRADE = 10;
+/** Otomatik nobetin bir karti gonderebilmesi icin gereken asgari guven. */
+export const WATCH_MIN_CONFIDENCE = 7;
 export const MIN_LEVERAGE = 1;
 export const MAX_LEVERAGE = 10;
 
@@ -90,6 +106,8 @@ export class TradeEngineService {
    * `exclude`, which only hides it.
    */
   private readonly reasoningEffort: string;
+  /** LLM_TEMPERATURE ayarlanmissa gonderilir; degilse saglayici varsayilani. */
+  private readonly temperature: number | null;
 
   constructor(
     private readonly config: ConfigService,
@@ -115,6 +133,9 @@ export class TradeEngineService {
     );
     this.reasoningEffort =
       this.config.get<string>('LLM_REASONING_EFFORT')?.trim() ?? '';
+    const rawTemp = this.config.get<string>('LLM_TEMPERATURE')?.trim();
+    const parsedTemp = rawTemp ? Number(rawTemp) : NaN;
+    this.temperature = Number.isFinite(parsedTemp) ? parsedTemp : null;
     this.promptCoinCount = Math.min(
       Math.max(
         parseInt(this.config.get<string>('PROMPT_COIN_COUNT') ?? '50', 10),
@@ -213,6 +234,14 @@ export class TradeEngineService {
         text:
           `ℹ️ ${parsed.signal.pair} ${parsed.signal.direction} sinyalini son 4 saat içinde ` +
           `zaten göndermiştim. Tekrar göndermiyorum. Sabırlı ol! 💪`,
+        signal: null,
+      };
+    }
+
+    const exposure = await this.exposureBlock(chatId, parsed.signal, balance);
+    if (exposure) {
+      return {
+        text: `⚠️ Bu kartı vermiyorum:\n${exposure}\n\n🔍 Açık işlemlerin kapanınca yer açılır.`,
         signal: null,
       };
     }
@@ -342,10 +371,10 @@ export class TradeEngineService {
         );
       } else if (!parsed.signal) {
         reason = 'Model fırsat görmedi (signal: false).';
-      } else if (parsed.signal.confidence < 7) {
+      } else if (parsed.signal.confidence < WATCH_MIN_CONFIDENCE) {
         reason =
           `Model ${parsed.signal.pair} ${parsed.signal.direction} önerdi ama güven skoru ` +
-          `${parsed.signal.confidence}/10 — otomatik nöbet için 7 gerekiyor.`;
+          `${parsed.signal.confidence}/10 — otomatik nöbet için ${WATCH_MIN_CONFIDENCE} gerekiyor.`;
       } else {
         const validation = this.validateSignal(
           parsed.signal,
@@ -358,6 +387,11 @@ export class TradeEngineService {
           parsed.signal.pair,
           parsed.signal.direction,
         );
+        const exposure = await this.exposureBlock(
+          chatId,
+          parsed.signal,
+          balance,
+        );
 
         if (!validation.valid) {
           reason = `Sinyal güvenlik kontrolünden geçemedi: ${validation.reason}`;
@@ -366,6 +400,9 @@ export class TradeEngineService {
           reason =
             `${parsed.signal.pair} ${parsed.signal.direction} son 4 saatte zaten ` +
             `gönderilmişti (spam koruması).`;
+        } else if (exposure) {
+          reason = `Toplam maruziyet sınırı: ${exposure}`;
+          this.logger.log(`Auto-scan signal blocked by exposure: ${exposure}`);
         } else {
           // Escalation: the watch found something, so the decision model
           // reviews it before the user ever sees a card. This is the only
@@ -380,6 +417,15 @@ export class TradeEngineService {
           if (review.verdict === 'reject' || !review.signal) {
             reason = `İkinci değerlendirmede elendi: ${review.comment || 'gerekçe belirtilmedi'}`;
             this.logger.log(`Review rejected signal: ${review.comment}`);
+          } else if (review.signal.confidence < WATCH_MIN_CONFIDENCE) {
+            // 7+ esigi eskiden yalnizca denetim ONCESI karta uygulaniyordu:
+            // denetci guveni 4'e cekse bile kart gidiyordu.
+            reason =
+              `İkinci değerlendirme güveni ${review.signal.confidence}/10'a çekti — ` +
+              `otomatik nöbet için ${WATCH_MIN_CONFIDENCE} gerekiyor.`;
+            this.logger.log(
+              `Review lowered confidence below threshold: ${review.signal.confidence}`,
+            );
           } else {
             // A revised card is not trusted either — it goes through the same
             // hard rules as the original.
@@ -445,9 +491,19 @@ export class TradeEngineService {
     instructions: string[],
     balance: number | null,
   ): Promise<SignalReview> {
-    // No separate reviewer configured — the watch already ran on the
-    // decision model, so a second pass would just cost twice.
-    if (this.watchModel === this.model) {
+    // Eskiden burada "ayni model ise denetimi hic yapma" kisa devresi vardi.
+    // Sonucu suydu: render.yaml LLM_MODEL_WATCH tanimlamadigi icin standart
+    // deploy'da ikinci degerlendirme katmani HIC calismiyordu — ilan edilen
+    // ama var olmayan bir guvenlik katmani.
+    //
+    // Artik ayni model olsa bile denetim kosuyor. Ayni model degil ama ayni
+    // BILGI degil: denetci prompt'u fonlama, acik pozisyon ve long/short
+    // verisini (withPositioning) goruyor, tarama passi bunlari hic gormuyor.
+    // Yani bu bir "kendi kendini onaylama" degil, yeni olcumlerle ikinci
+    // bakis. Maliyeti de kucuk: bu yol yalnizca gercekten kart uretilmis
+    // gecislerde calisiyor, taramalarin ezici cogunlugu buraya hic gelmiyor.
+    if (this.config.get<string>('DISABLE_SIGNAL_REVIEW') === 'true') {
+      this.logger.log('Signal review disabled by DISABLE_SIGNAL_REVIEW');
       return { verdict: 'approve', signal, comment: '' };
     }
 
@@ -582,15 +638,21 @@ sadece comment'te neden reddettiğini yaz.`;
 
   /** Regex'lerin Turkce karakterle bozulmamasi icin ASCII'ye indirger. */
   private normalizeTr(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/ı/g, 'i')
-      .replace(/İ/g, 'i')
-      .replace(/ş/g, 's')
-      .replace(/ğ/g, 'g')
-      .replace(/ü/g, 'u')
-      .replace(/ö/g, 'o')
-      .replace(/ç/g, 'c');
+    return normalizeTurkish(text);
+  }
+
+  /**
+   * Denetcinin cevabi, JSON'a bakmadan, bir REDDI mi anlatiyor.
+   *
+   * Iki yerde kullaniliyor: JSON hic uretilmediginde ve JSON'daki verdict
+   * taninmadiginda. Ikisinde de eski davranis "onay"di — yani denetci
+   * "bu islem acilmamali" dediginde bu cumle karta ONAY GEREKCESI olarak
+   * yapistirilip kullaniciya gonderiliyordu.
+   */
+  private readsAsRejection(raw: string): boolean {
+    return /(reddet|reddediyorum|red ediyorum|girilmemeli|girmemeli|acilmamali|acmamali|onaylamiyorum|onaylamam|tavsiye etmem|onermiyorum|uzak dur|riskli buluyorum|gecersiz|kabul etmiyorum)/.test(
+      this.normalizeTr(raw),
+    );
   }
 
   parseReview(raw: string, original: TradeSignal): SignalReview {
@@ -602,13 +664,7 @@ sadece comment'te neden reddettiğini yaz.`;
       // Denetci JSON uretmeyip duz metinle "bu islemi reddediyorum cunku..."
       // yazabiliyor. Eskiden o metin ONAY YORUMU olarak karta yapistirilip
       // gonderiliyordu — reddin kendisi tavsiye gibi gorunuyordu.
-      const t = this.normalizeTr(raw);
-      const looksLikeRejection =
-        /(reddet|reddediyorum|girilmemeli|acilmamali|onaylamiyorum|tavsiye etmem|uzak dur|riskli buluyorum|gecersiz)/.test(
-          t,
-        );
-
-      if (looksLikeRejection) {
+      if (this.readsAsRejection(raw)) {
         this.logger.warn(
           'Review had no JSON but reads as a rejection; rejecting',
         );
@@ -630,12 +686,22 @@ sadece comment'te neden reddettiğini yaz.`;
 
     try {
       const p = JSON.parse(jsonText);
-      const verdict =
-        p.verdict === 'reject'
-          ? 'reject'
-          : p.verdict === 'revise'
-            ? 'revise'
-            : 'approve';
+
+      // Harfe duyarli tam esitlik ("REJECT" !== "reject") reddi sessizce
+      // ONAYA cevirmenin en kolay yoluydu. Turkce karsiliklari da kabul
+      // ediliyor: denetci prompt'u Turkce, model bazen Turkce cevap veriyor.
+      const rawVerdict = normalizeTurkish(String(p.verdict ?? ''));
+      const verdict = /^(reject|red|reddet|ret)/.test(rawVerdict)
+        ? 'reject'
+        : /^(revise|revize|duzelt)/.test(rawVerdict)
+          ? 'revise'
+          : /^(approve|onay|kabul|ok)/.test(rawVerdict)
+            ? 'approve'
+            : // Taninmayan verdict: metne bak. Denetci reddi baska bir
+              // kelimeyle yazmis olabilir ve varsayilan onay olmamali.
+              this.readsAsRejection(raw)
+              ? 'reject'
+              : 'approve';
       const comment = String(p.comment ?? '').trim();
 
       if (verdict === 'reject') {
@@ -788,6 +854,14 @@ sadece comment'te neden reddettiğini yaz.`;
       };
     }
 
+    const exposure = await this.exposureBlock(chatId, parsed.signal, balance);
+    if (exposure) {
+      return {
+        text: `${parsed.text}\n\n` + `⚠️ Kartı vermiyorum: ${exposure}`,
+        signal: null,
+      };
+    }
+
     return parsed;
   }
 
@@ -891,6 +965,16 @@ ${balanceBlock}
 4. Margin, bakiyenin en fazla %${MAX_POSITION_RATIO * 100}'si
 5. LONG ise stopLoss < entry < takeProfit — SHORT ise takeProfit < entry < stopLoss
 6. Emin değilsen kart VERME, sadece yorumunu yaz
+7. Risk/ödül en az 1:1.5
+8. Stop likidasyondan önce tetiklenmeli — geniş stop istiyorsan kaldıracı düşür
+9. Giriş, yukarıda yazan güncel fiyatın %3'ü içinde olmalı
+10. Stop çalışırsa kayıp bakiyenin %${MAX_RISK_PCT_PER_TRADE}'unu geçemez
+    (kayıp = margin × kaldıraç × stop yüzdesi)
+
+⚠️ Bu coin Binance'te çarpanlı bir parite olarak işlem görüyorsa
+(${r.futuresPair ?? 'örn. 1000PEPEUSDT'} gibi), giriş/stop/hedef fiyatlarını
+YUKARIDA YAZAN BİRİM FİYATTAN DEĞİL, o paritenin kendi fiyatından yaz.
+Emin değilsen kart verme.
 ${instructionsBlock}
 
 İşlem kartı vermek istersen cevabına şu JSON'u ekle (fiyatları sayı olarak yaz):
@@ -993,6 +1077,20 @@ ${balanceBlock}
 5. Margin, bakiyenin en fazla %${MAX_POSITION_RATIO * 100}'si.
 6. Bakiye ${MIN_BALANCE_USDT} USDT altındaysa → TÜM işlemleri REDDET.
 7. Emin değilsen işlem AÇMA. "Şu an işlem yok" geçerli ve saygın bir cevaptır.
+8. Risk/ödül EN AZ 1:1.5. |hedef−giriş| ≥ 1.5 × |giriş−stop| olmalı.
+9. Stop, likidasyondan ÖNCE tetiklenmeli. ${MAX_LEVERAGE}x'te likidasyon
+   yaklaşık %${(100 / MAX_LEVERAGE - 0.5).toFixed(1)} uzakta; stop bunun %60'ını geçemez.
+   Geniş stop istiyorsan KALDIRACI DÜŞÜR — stop mesafesi ile kaldıraç
+   birbirine bağlıdır, ayrı ayrı seçilmez.
+10. Giriş fiyatı, yukarıdaki tabloda yazan güncel fiyatın %3'ü içinde olmalı.
+    Uzak bir "ideal giriş" yazma; şu an girilebilecek fiyatı yaz.
+11. Stop çalıştığında kaybedilecek tutar bakiyenin %${MAX_RISK_PCT_PER_TRADE}'unu geçemez.
+    Kaybedilen margin değil, margin × kaldıraç × stop yüzdesidir.
+
+📏 MARGİN NASIL SEÇİLİR (kural 11'in pratiği):
+   margin ≈ (bakiye × 2) ÷ (stop yüzdesi × kaldıraç)
+   Örnek: bakiye 100, stop %3 uzakta, 5x → margin ≈ 100×2 ÷ (3×5) ≈ 13 USDT.
+   Stop uzaksa margin KÜÇÜLÜR. Her kartta margini tavana yapıştırma.
 
 📐 STOP-LOSS / TAKE-PROFIT YÖNÜ (matematiksel zorunluluk):
 - LONG ise: stopLoss < entry < takeProfit
@@ -1079,6 +1177,12 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
         ...(this.reasoningEffort
           ? { reasoning: { effort: this.reasoningEffort } }
           : {}),
+        // Determinizm ayari. Bilerek opt-in: dusunme modu acikken (reasoning)
+        // Anthropic temperature=1 disinda bir deger kabul etmiyor, yani
+        // sabit bir 0.2 gondermek LLM_REASONING_EFFORT ile birlikte
+        // cagrinin tamamini 400 ile dusururdu. Dusunmeyi kapatip
+        // tekrarlanabilirlik isteyen LLM_TEMPERATURE=0.2 verir.
+        ...(this.temperature !== null ? { temperature: this.temperature } : {}),
         // Fable spends tokens on reasoning before it writes, so the ceiling
         // has to clear both the thinking and the answer.
         max_tokens: this.maxTokens,
@@ -1092,11 +1196,25 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       },
     );
 
-    const content = resp.data?.choices?.[0]?.message?.content ?? '';
+    const choice = resp.data?.choices?.[0];
+    const content = choice?.message?.content ?? '';
+    const finish = choice?.finish_reason;
+
     if (!content) {
-      const finish = resp.data?.choices?.[0]?.finish_reason;
       throw new Error(`Model bos cevap dondu (finish_reason: ${finish})`);
     }
+
+    // Kesilmis cevap sessizce "format hatasi" olarak damgalaniyordu: JSON'un
+    // yarisi geliyor, parse edilemiyor ve gercek sebep (token tavani) hicbir
+    // yerde gorunmuyordu. Dusunen modellerde dusunme de bu tavani yiyor.
+    if (finish === 'length' || finish === 'max_tokens') {
+      throw new Error(
+        `Model cevabi ${this.maxTokens} token tavanina takildi ve yarida kesildi ` +
+          `(finish_reason: ${finish}). LLM_MAX_TOKENS degerini yukselt ya da ` +
+          `LLM_REASONING_EFFORT degerini dusur.`,
+      );
+    }
+
     return content;
   }
 
@@ -1264,22 +1382,43 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       };
     }
 
-    if (balance !== null && balance !== undefined) {
-      if (balance < MIN_BALANCE_USDT) {
-        return {
-          valid: false,
-          reason: `Bakiye ${balance} USDT — kill switch sınırının altında.`,
-        };
-      }
-      const margin = this.parseNum(signal.margin);
-      if (Number.isFinite(margin) && margin > balance * MAX_POSITION_RATIO) {
-        return {
-          valid: false,
-          reason:
-            `Margin ${margin} USDT, bakiyenin %${MAX_POSITION_RATIO * 100}'sini ` +
-            `(${(balance * MAX_POSITION_RATIO).toFixed(2)} USDT) aşıyor.`,
-        };
-      }
+    // Kill switch yalnizca GERCEKTEN bilinen bir bakiye icin anlamli:
+    // bilinmeyen bakiyeyi "dusuk" sayip her seyi reddetmek botu kilitlerdi.
+    if (
+      balance !== null &&
+      balance !== undefined &&
+      balance < MIN_BALANCE_USDT
+    ) {
+      return {
+        valid: false,
+        reason: `Bakiye ${balance} USDT — kill switch sınırının altında.`,
+      };
+    }
+
+    // Boyutlandirma denetimi ise HER ZAMAN calisir. Bakiye bilinmiyorsa
+    // prompt'un kullaniciya soyledigi varsayimin (100 USDT) uzerinden.
+    const effectiveBalance = balance ?? ASSUMED_BALANCE_USDT;
+
+    const margin = this.parseNum(signal.margin);
+    if (!Number.isFinite(margin) || margin <= 0) {
+      // Eskiden okunamayan margin sessizce atlaniyordu; yani tek
+      // boyutlandirma kuralini devre disi birakmanin yolu "margin"
+      // alanini bosaltmakti.
+      return {
+        valid: false,
+        reason: 'Margin okunamadı. Kartta margin USDT cinsinden yazılmalı.',
+      };
+    }
+    if (margin > effectiveBalance * MAX_POSITION_RATIO) {
+      return {
+        valid: false,
+        reason:
+          `Margin ${margin} USDT, bakiyenin %${MAX_POSITION_RATIO * 100}'sini ` +
+          `(${(effectiveBalance * MAX_POSITION_RATIO).toFixed(2)} USDT) aşıyor.` +
+          (balance === null || balance === undefined
+            ? ` (Bakiye bildirilmediği için ${ASSUMED_BALANCE_USDT} USDT varsayıldı — "bakiye 250" yazarak güncelle.)`
+            : ''),
+      };
     }
 
     // --- Birlesim kontrolleri ---
@@ -1320,6 +1459,22 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       if (!verdict.ok) {
         return { valid: false, reason: verdict.reason };
       }
+    }
+
+    // 5) Islem basina gercek risk. Margin tavani tek basina yetmiyordu:
+    //    kaybedilen tutar margin degil, margin x kaldirac x stop yuzdesidir.
+    //    Ayni %50 tavanina uyan iki kart bakiyenin %2'sini de %75'ini de
+    //    riske atabiliyordu.
+    const perTrade = checkRiskPerTrade(
+      effectiveBalance,
+      margin,
+      entry,
+      sl,
+      lev,
+      MAX_RISK_PCT_PER_TRADE,
+    );
+    if (!perTrade.ok) {
+      return { valid: false, reason: perTrade.reason };
     }
 
     // Tradability, not popularity: the check is whether Binance Futures lists
@@ -1472,6 +1627,46 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     }
 
     return false;
+  }
+
+  /**
+   * Toplam maruziyet kapisi.
+   *
+   * %50 margin tavani sinyal BASINA olculuyordu: dort saat icinde uc farkli
+   * paritede kart gelirse ucu de tek tek "kurallara uygun" olur ama toplamda
+   * bakiyenin %150'si baglanmis olur. validateSignal senkron ve veritabanina
+   * bakmadigi icin bu kontrol ayri duruyor.
+   *
+   * Acik sayilan kartlar: status='open' olanlar. OutcomeTracker bunlari
+   * kapattikca maruziyet kendiliginden serbest kalir.
+   *
+   * Geriye null doner (engel yok) ya da kullaniciya gosterilecek gerekce.
+   */
+  async exposureBlock(
+    chatId: string,
+    signal: TradeSignal,
+    balance: number | null,
+  ): Promise<string | null> {
+    const margin = this.parseNum(signal.margin);
+    if (!Number.isFinite(margin) || margin <= 0) return null;
+
+    const effectiveBalance = balance ?? ASSUMED_BALANCE_USDT;
+    const cap = effectiveBalance * MAX_POSITION_RATIO;
+
+    const open = await this.prisma.sent_signals.findMany({
+      where: { chat_id: chatId, status: 'open' },
+      select: { margin_usdt: true, pair: true },
+    });
+
+    const committed = open.reduce((sum, r) => sum + (r.margin_usdt ?? 0), 0);
+    if (committed + margin <= cap) return null;
+
+    return (
+      `Açık kartların zaten ${committed.toFixed(2)} USDT margin bağlamış ` +
+      `(${open.map((o) => o.pair).join(', ')}). Bu kartın ${margin} USDT'siyle ` +
+      `toplam ${(committed + margin).toFixed(2)} USDT olur ve bakiyenin ` +
+      `%${MAX_POSITION_RATIO * 100}'si olan ${cap.toFixed(2)} USDT sınırını aşar.`
+    );
   }
 
   async getBalance(chatId: string): Promise<number | null> {

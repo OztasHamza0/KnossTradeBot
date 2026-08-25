@@ -192,6 +192,9 @@ export class AutoScanService {
             leverage:
               parseFloat(response.signal.leverage.match(/[\d.]+/)?.[0] ?? '') ||
               null,
+            // Toplam maruziyet hesabi bunu okuyor.
+            margin_usdt:
+              this.tradeEngine.parseNum(response.signal.margin) || null,
           },
         });
 

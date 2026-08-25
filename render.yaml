@@ -27,15 +27,43 @@ services:
       - key: PUBLIC_URL
         sync: false # ilk deploy sonrasi: https://<servis-adin>.onrender.com
 
+      # Botun hizmet verecegi Telegram sohbet id'leri (virgulle ayrilmis).
+      # BOS BIRAKILIRSA HERKESE ACIK: adresi bulan herkes active_chats'e
+      # eklenir ve saatlik nobette SENIN LLM kotandan tarama alir.
+      # Kendi id'ni ogrenmek icin bota /start yazip loglara bak.
+      - key: ALLOWED_CHAT_IDS
+        sync: false
+
+      # CoinGecko ucretsiz Demo anahtari. Anahtarsiz kota IP basinadir ve
+      # Render'da o IP baska kiracilarla paylasildigi icin surekli 429 alinir.
+      - key: COINGECKO_API_KEY
+        sync: false
+
+      # Opsiyonel: ucuz nobet modeli. Tanimlanirsa saatlik taramalar bunda
+      # kosar, sadece sinyal cikinca LLM_MODEL devreye girer. Tanimlanmazsa
+      # her sey LLM_MODEL'de kosar (denetim yine calisir, sadece pahali olur).
+      # Deger saglayiciya gore degisir, o yuzden panelden giriliyor.
+      - key: LLM_MODEL_WATCH
+        sync: false
+
       # ---- Render otomatik uretir ----
       - key: CRON_API_KEY
         generateValue: true
+      # ZORUNLU: tanimsizsa webhook TUM istekleri reddeder ve bot mesaj almaz.
+      # Blueprint bunu kendisi uretir; elle silme.
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
 
       # ---- Sabitler ----
       - key: LLM_MODEL
         value: claude-fable-5
+      # Dusunme token'lari CIKTI fiyatindan faturalanir ve olculen bir "tara"
+      # maliyetinin ~%80'ini olusturuyordu. Bu gorev (tablo oku, kurallari
+      # uygula, JSON uret) derin muhakeme gerektirmiyor.
+      - key: LLM_REASONING_EFFORT
+        value: low
+      - key: BOT_TIMEZONE
+        value: Europe/Istanbul
       - key: TZ
         value: Europe/Istanbul
       # Servis uyanik tutulacagi icin uygulama ici cron calisir.

@@ -487,7 +487,7 @@ export class MarketDataService {
 
     const ranges = windows
       .map((w, i) => {
-        const candles = klineResults[i] ? toCandles(klineResults[i]!) : [];
+        const candles = klineResults[i] ? toCandles(klineResults[i]) : [];
         const pos = rangePosition(candles, lastPrice);
         return pos ? { tf: w.tf, label: w.label, ...pos } : null;
       })

@@ -29,10 +29,23 @@ export class TelegramController {
     @Body() body: any,
     @Headers('x-telegram-bot-api-secret-token') secretToken: string,
   ): { ok: boolean } {
-    // The webhook URL is public. When a secret is configured, Telegram echoes
-    // it on every call, so anything without it is not Telegram.
+    // Webhook adresi herkese acik. Telegram, ayarlanmis secret'i her cagrida
+    // geri gonderiyor; dolayisiyla secret tasimayan istek Telegram degildir.
+    //
+    // Eskiden secret TANIMSIZ oldugunda dogrulama tamamen atlaniyordu — yani
+    // degiskeni unutmak, endpoint'i sessizce herkese acik birakiyordu.
+    // Ayni dosyadaki cron endpoint'i zaten tam tersini yapiyor (anahtar yoksa
+    // reddediyor); ikisi ayni davranmali. render.yaml bu degeri kendisi
+    // uretiyor, o yuzden uretimde her zaman tanimli olur.
     const expected = this.config.get<string>('TELEGRAM_WEBHOOK_SECRET');
-    if (expected && secretToken !== expected) {
+    if (!expected) {
+      this.logger.error(
+        'TELEGRAM_WEBHOOK_SECRET tanimli degil — webhook istekleri REDDEDILIYOR. ' +
+          'Degiskeni ayarlayip servisi yeniden baslat.',
+      );
+      throw new UnauthorizedException();
+    }
+    if (secretToken !== expected) {
       this.logger.warn('Rejected webhook call with invalid secret token');
       throw new UnauthorizedException();
     }

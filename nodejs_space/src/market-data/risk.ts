@@ -188,3 +188,59 @@ export function suggestedMargin(
 
   return (balance * riskPct) / lossPctOfMargin;
 }
+
+/**
+ * Bir islemde bakiyenin ne kadarinin gercekten riske atildigi.
+ *
+ * Margin tavani (%50) tek basina yeterli degildi: ayni tavana uyan iki kart,
+ * stop mesafesine ve kaldirac na gore bakiyenin %2'sini de %75'ini de riske
+ * atabiliyordu. Kaybedilen tutar margin degil, "margin x kaldirac x stop
+ * yuzdesi" kadardir.
+ *
+ * Olculen ornek: margin 50 USDT (bakiye 100), 10x, stop %15 uzakta
+ *   -> 50 x 10 x 0.15 = 75 USDT, yani bakiyenin %75'i. Eski kontrollerin
+ *      hepsinden geciyordu.
+ */
+export function checkRiskPerTrade(
+  balance: number,
+  margin: number,
+  entry: number,
+  stopLoss: number,
+  leverage: number,
+  maxRiskPct: number,
+): { ok: boolean; riskUsdt: number; riskPct: number; reason?: string } {
+  const stopPct = Math.abs(entry - stopLoss) / entry;
+
+  if (
+    !Number.isFinite(balance) ||
+    balance <= 0 ||
+    !Number.isFinite(margin) ||
+    margin <= 0 ||
+    !Number.isFinite(leverage) ||
+    leverage <= 0 ||
+    !Number.isFinite(stopPct) ||
+    stopPct <= 0
+  ) {
+    return { ok: true, riskUsdt: 0, riskPct: 0 };
+  }
+
+  // Stop calistiginda kaybedilen tutar; margin'in tamamindan fazla olamaz
+  // (izole marjda likidasyon zaten orada devreye girer).
+  const riskUsdt = Math.min(margin * leverage * stopPct, margin);
+  const riskPct = (riskUsdt / balance) * 100;
+
+  if (riskPct > maxRiskPct) {
+    return {
+      ok: false,
+      riskUsdt,
+      riskPct,
+      reason:
+        `Bu kart stop calistiginda ${riskUsdt.toFixed(2)} USDT kaybettirir — ` +
+        `bakiyenin %${riskPct.toFixed(1)}'i (tavan %${maxRiskPct}). ` +
+        `Margin ${margin} USDT, ${leverage}x, stop %${(stopPct * 100).toFixed(2)} uzakta. ` +
+        `Ya margini ya kaldiraci dusur.`,
+    };
+  }
+
+  return { ok: true, riskUsdt, riskPct };
+}

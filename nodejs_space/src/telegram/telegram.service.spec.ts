@@ -438,3 +438,62 @@ describe('TelegramService command routing', () => {
     });
   });
 });
+
+/**
+ * Turkce buyuk 'İ' regresyonu.
+ *
+ * normalize() once toLowerCase cagirdigi icin 'İ' -> 'i' + U+0307 oluyordu ve
+ * komut regexleri sessizce eslesmiyordu. Telefon klavyeleri cumle basini
+ * otomatik buyuttugu icin bu yol gunluk kullanimda surekli tetikleniyordu:
+ * "BAKİYE 100" bakiye kaydetmiyor, serbest sohbete dusup LLM cagrisi
+ * yakiyordu — ve bakiye null kaldigi icin boyutlandirma denetimi de
+ * devre disi kaliyordu.
+ */
+describe('TelegramService buyuk harfli Turkce komutlar', () => {
+  const service: any = new TelegramService(
+    stubConfig,
+    stubPrisma,
+    stubEngine,
+    stubMarket,
+    stubOutcome,
+  );
+
+  it('BAKİYE 100 bir bakiye komutudur', () => {
+    expect(service.matchBalanceCommand('BAKİYE 100')).toBe(100);
+    expect(service.matchBalanceCommand('Bakiye 100')).toBe(100);
+    expect(service.matchBalanceCommand('bakiye 100')).toBe(100);
+  });
+
+  it('BAKİYE (argumansiz) durum sorgusudur', () => {
+    expect(Number.isNaN(service.matchBalanceCommand('BAKİYE'))).toBe(true);
+  });
+
+  it('PİYASA bir piyasa komutudur', () => {
+    expect(service.isMarketCommand('PİYASA')).toBe(true);
+  });
+
+  it('İNCELE ve ARAŞTIR buyuk harfle de arastirma komutudur', () => {
+    expect(service.isResearchCommand('İNCELE SOL')).toBe(true);
+    expect(service.isResearchCommand('ARAŞTIR PEPE')).toBe(true);
+  });
+
+  it('SESSİZ bir sessiz saat komutudur', () => {
+    expect(service.isQuietCommand('SESSİZ 00-08')).toBe(true);
+    expect(service.parseQuietArg('SESSİZ 00-08')).toEqual({
+      kind: 'set',
+      start: 0,
+      end: 8,
+    });
+  });
+
+  it('NÖBET ve TARA zaten calisiyordu, bozulmadi', () => {
+    expect(service.isWatchCommand('NÖBET 30DK')).toBe(true);
+    expect(service.parseWatchArg('NÖBET 30DK')).toBe(30);
+    expect(service.isScanCommand('TARA')).toBe(true);
+  });
+
+  it('normal cumleler hala komut sanilmiyor', () => {
+    expect(service.isScanCommand('KİM TARAFINDAN')).toBe(false);
+    expect(service.isCreditCommand('KREDİ KARTI NEDİR')).toBe(false);
+  });
+});

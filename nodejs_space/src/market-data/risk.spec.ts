@@ -4,6 +4,7 @@ import {
   checkRiskReward,
   checkEntryNearMarket,
   suggestedMargin,
+  checkRiskPerTrade,
 } from './risk';
 
 describe('liquidationDistancePct', () => {
@@ -158,5 +159,43 @@ describe('suggestedMargin', () => {
   it('returns null when the numbers make no sense', () => {
     expect(suggestedMargin(100, 100, 100, 3, 2)).toBeNull();
     expect(suggestedMargin(100, 100, 96, 0, 2)).toBeNull();
+  });
+});
+
+describe('checkRiskPerTrade', () => {
+  it('kurallara uyan ama bakiyenin %75ini riske atan karti reddeder', () => {
+    // margin 50 (bakiye 100 -> tavana esit), 10x, stop %15 uzakta.
+    // Eski kontrollerin hepsinden geciyordu.
+    const r = checkRiskPerTrade(100, 50, 100, 85, 10, 10);
+    expect(r.ok).toBe(false);
+    expect(Math.round(r.riskPct)).toBe(50); // margin'in tamamiyla sinirli
+    expect(r.reason).toContain('kaybettirir');
+  });
+
+  it('makul boyutlandirmayi gecirir', () => {
+    // margin 20, 5x, stop %3 -> 3 USDT = bakiyenin %3'u
+    const r = checkRiskPerTrade(100, 20, 100, 97, 5, 10);
+    expect(r.ok).toBe(true);
+    expect(r.riskUsdt).toBeCloseTo(3, 5);
+    expect(r.riskPct).toBeCloseTo(3, 5);
+  });
+
+  it('kaybi margin ile sinirlar — izole marjda daha fazlasi kaybedilemez', () => {
+    const r = checkRiskPerTrade(1000, 10, 100, 50, 10, 100);
+    // 10 x 10 x 0.5 = 50 olurdu ama izole marjda tavan 10 USDT.
+    expect(r.riskUsdt).toBe(10);
+  });
+
+  it('tavani tam tutturan kart gecer', () => {
+    // 10 USDT risk = bakiyenin tam %10'u
+    const r = checkRiskPerTrade(100, 20, 100, 95, 10, 10);
+    expect(r.riskUsdt).toBeCloseTo(10, 5);
+    expect(r.ok).toBe(true);
+  });
+
+  it('olculemeyen girdide yoldan cekilir', () => {
+    expect(checkRiskPerTrade(0, 20, 100, 97, 5, 10).ok).toBe(true);
+    expect(checkRiskPerTrade(100, 0, 100, 97, 5, 10).ok).toBe(true);
+    expect(checkRiskPerTrade(100, 20, 100, 100, 5, 10).ok).toBe(true);
   });
 });
