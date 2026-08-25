@@ -8,6 +8,11 @@ import {
   CoinAnalysis,
 } from '../market-data/market-data.service';
 import { judgeStopDistance } from '../market-data/indicators';
+import {
+  checkStopVsLiquidation,
+  checkRiskReward,
+  checkEntryNearMarket,
+} from '../market-data/risk';
 import axios from 'axios';
 
 export interface TradeSignal {
@@ -182,12 +187,10 @@ export class TradeEngineService {
         .getCoinAnalysis(parsed.signal.pair)
         .catch(() => null));
 
-    const validation = this.validateSignal(
-      parsed.signal,
-      market,
-      balance,
-      analysis?.atr1h ?? null,
-    );
+    const validation = this.validateSignal(parsed.signal, market, balance, {
+      atr: analysis?.atr1h ?? null,
+      marketPrice: analysis?.price ?? null,
+    });
     if (!validation.valid) {
       this.logger.warn(`Signal rejected: ${validation.reason}`);
       return {
@@ -244,8 +247,11 @@ export class TradeEngineService {
       return results;
     }
 
+    // Verisi olmayan coin "sert hareket etmedi" degil, "bilinmiyor".
     const sharpMovers = market.top50.filter(
-      (c) => Math.abs(c.price_change_percentage_1h) > 5,
+      (c) =>
+        c.price_change_percentage_1h !== null &&
+        Math.abs(c.price_change_percentage_1h) > 5,
     );
 
     // Tarama modeli de derin veriyi gorsun: ucuz model olmasi korlemesine
@@ -275,7 +281,7 @@ export class TradeEngineService {
               .map(
                 (c) =>
                   `${c.symbol}: $${this.fmtPrice(c.current_price)} ` +
-                  `(1s: ${c.price_change_percentage_1h >= 0 ? '+' : ''}${c.price_change_percentage_1h.toFixed(2)}%)`,
+                  `(1s: ${c.price_change_percentage_1h! >= 0 ? '+' : ''}${c.price_change_percentage_1h!.toFixed(2)}%)`,
               )
               .join('\n')
           : null;
@@ -341,7 +347,12 @@ export class TradeEngineService {
           `Model ${parsed.signal.pair} ${parsed.signal.direction} önerdi ama güven skoru ` +
           `${parsed.signal.confidence}/10 — otomatik nöbet için 7 gerekiyor.`;
       } else {
-        const validation = this.validateSignal(parsed.signal, market, balance);
+        const validation = this.validateSignal(
+          parsed.signal,
+          market,
+          balance,
+          await this.analysisContext(parsed.signal.pair, movers),
+        );
         const duplicate = await this.isDuplicateSignal(
           chatId,
           parsed.signal.pair,
@@ -376,6 +387,7 @@ export class TradeEngineService {
               review.signal,
               market,
               balance,
+              await this.analysisContext(review.signal.pair, movers),
             );
 
             if (!reValidation.valid) {
@@ -450,7 +462,7 @@ export class TradeEngineService {
     const coinLine = coin
       ? `${coin.pair}: $${this.fmtPrice(coin.current_price)} | ` +
         `24s ${coin.price_change_percentage_24h.toFixed(2)}% | ` +
-        `1s ${coin.price_change_percentage_1h.toFixed(2)}% | ` +
+        `1s ${coin.price_change_percentage_1h === null ? 'veri yok' : coin.price_change_percentage_1h.toFixed(2) + '%'} | ` +
         `hacim $${(coin.total_volume / 1e6).toFixed(0)}M`
       : `${signal.pair}: hacim listesinde yok`;
 
@@ -619,6 +631,24 @@ sadece comment'te neden reddettiğini yaz.`;
     }
   }
 
+  /**
+   * Guvenlik kontrolleri icin olcum baglami.
+   *
+   * Dort ayri yol sinyal uretiyor ve hepsinin ayni sikilikta denetlenmesi
+   * gerekiyor. Once yalnizca elle "tara" yolunda ATR kontrolu vardi; otomatik
+   * nobet, denetci sonrasi yeniden dogrulama ve arastirma yollarinda yoktu —
+   * yani kullanici basinda yokken kontrol gevsiyordu.
+   */
+  private async analysisContext(
+    pair: string,
+    movers: CoinAnalysis[] = [],
+  ): Promise<{ atr: number | null; marketPrice: number | null }> {
+    const a =
+      movers.find((m) => m.pair === pair) ??
+      (await this.marketData.getCoinAnalysis(pair).catch(() => null));
+    return { atr: a?.atr1h ?? null, marketPrice: a?.price ?? null };
+  }
+
   /** Diagnostics for "nöbet test" — no model call, so it is free and instant. */
   async describeMarketState(): Promise<{
     source: string;
@@ -633,10 +663,14 @@ sadece comment'te neden reddettiğini yaz.`;
       source: market.source,
       coinCount: market.top50.length,
       sharpMovers: market.top50
-        .filter((c) => Math.abs(c.price_change_percentage_1h) > 5)
+        .filter(
+          (c) =>
+            c.price_change_percentage_1h !== null &&
+            Math.abs(c.price_change_percentage_1h) > 5,
+        )
         .map((c) => ({
           symbol: c.symbol,
-          change1h: c.price_change_percentage_1h,
+          change1h: c.price_change_percentage_1h!,
         })),
       fearGreed: market.fearGreed?.value ?? null,
       fetchedAt: market.fetchedAt,
@@ -703,7 +737,12 @@ sadece comment'te neden reddettiğini yaz.`;
       };
     }
 
-    const validation = this.validateSignal(parsed.signal, market, balance);
+    const validation = this.validateSignal(
+      parsed.signal,
+      market,
+      balance,
+      await this.analysisContext(parsed.signal.pair),
+    );
     if (!validation.valid) {
       this.logger.warn(`Research signal rejected: ${validation.reason}`);
       return {
@@ -855,7 +894,7 @@ Türkçe, enerjik ama dürüst konuş. Sohbet ediyoruz — sinyal makinesi deği
         (c, i) =>
           `${String(i + 1).padStart(2)}. ${c.pair.padEnd(12)} $${this.fmtPrice(c.current_price)} ` +
           `| 24s ${c.price_change_percentage_24h >= 0 ? '+' : ''}${c.price_change_percentage_24h.toFixed(2)}% ` +
-          `| 1s ${c.price_change_percentage_1h >= 0 ? '+' : ''}${c.price_change_percentage_1h.toFixed(2)}% ` +
+          `| 1s ${c.price_change_percentage_1h === null ? '  ?  ' : (c.price_change_percentage_1h >= 0 ? '+' : '') + c.price_change_percentage_1h.toFixed(2) + '%'} ` +
           `| hacim $${(c.total_volume / 1_000_000).toFixed(1)}M`,
       )
       .join('\n');
@@ -1138,7 +1177,7 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
     signal: TradeSignal,
     market?: MarketOverview,
     balance?: number | null,
-    atrValue?: number | null,
+    ctx?: { atr?: number | null; marketPrice?: number | null },
   ): { valid: boolean; reason?: string } {
     if (!signal.pair) return { valid: false, reason: 'Parite belirtilmemiş.' };
 
@@ -1209,8 +1248,39 @@ Kullanıcı ekran görüntüsü gönderirse görseli analiz et ve yukarıdaki pi
       }
     }
 
-    // Oynakliga gore stop denetimi. Yon dogru olsa bile gurultude
-    // supurulecek bir stop, isabetli tahmini bile zararla kapatir.
+    // --- Birlesim kontrolleri ---
+    // Alanlar tek tek gecerli olsa bile birlikte calismaz bir kart
+    // olusturabiliyorlar; asagidakiler tam olarak o birlesimleri denetler.
+
+    // 1) Stop likidasyondan once tetiklenmeli. Bu kontrol olmadan 10x +
+    //    genis stop "gecerli" sayiliyor ve stop hic calismiyordu.
+    const liq = checkStopVsLiquidation(entry, sl, lev);
+    if (!liq.ok) {
+      return { valid: false, reason: liq.reason };
+    }
+
+    // 2) Risk/odul. Prompt'ta yaziyordu, kodda yoktu.
+    const rr = checkRiskReward(entry, sl, tp);
+    if (!rr.ok) {
+      return { valid: false, reason: rr.reason };
+    }
+
+    // 3) Giris gercek piyasa fiyatina yakin olmali. Hem bayat veriyi hem de
+    //    carpanli parite (1000PEPE) fiyat karisikligini yakalar.
+    const marketPrice =
+      ctx?.marketPrice ??
+      market?.top50.find((c) => c.pair === signal.pair)?.current_price ??
+      null;
+    if (marketPrice !== null) {
+      const near = checkEntryNearMarket(entry, marketPrice);
+      if (!near.ok) {
+        return { valid: false, reason: near.reason };
+      }
+    }
+
+    // 4) Oynakliga gore stop mesafesi. Yon dogru olsa bile gurultude
+    //    supurulecek bir stop, isabetli tahmini bile zararla kapatir.
+    const atrValue = ctx?.atr;
     if (atrValue !== null && atrValue !== undefined && atrValue > 0) {
       const verdict = judgeStopDistance(entry, sl, atrValue);
       if (!verdict.ok) {

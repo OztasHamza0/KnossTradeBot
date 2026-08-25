@@ -11,7 +11,8 @@ export interface CoinData {
   name: string;
   current_price: number;
   price_change_percentage_24h: number;
-  price_change_percentage_1h: number;
+  /** null = 1 saatlik veri yok. 0 yazmak "hareket etmemis" demek olurdu. */
+  price_change_percentage_1h: number | null;
   /** 24h quote volume in USDT */
   total_volume: number;
   /** True when the coin was found on the Binance Futures ticker */
@@ -190,8 +191,16 @@ export class MarketDataService {
     'https://fapi2.binance.com',
   ];
 
-  /** Leveraged tokens and index products — never valid futures entries */
-  private readonly EXCLUDED = /(UPUSDT|DOWNUSDT|BULLUSDT|BEARUSDT)$/;
+  /**
+   * Islem adayi olmamasi gereken pariteler.
+   *
+   * Eski regex sadece UP/DOWN/BULL/BEAR sonekli tokenlari yakaliyordu ve
+   * Binance Futures'in listeledigi 3x kaldiracli hisse ETF'lerini kaciriyordu:
+   * SOXL, SOXS, KORU. Bunlarin uzerine 10x kaldirac = 30x efektif maruziyet,
+   * ve "1x-10x kaldirac" demir kurali sessizce delinmis oluyor.
+   */
+  private readonly EXCLUDED =
+    /^(SOXL|SOXS|KORU|TQQQ|SQQQ|MSTX|MSTZ|TSLL|TSLQ|NVDL|NVDQ|SPXL|SPXS|LABU|LABD|YINN|YANG|FNGU|FNGD)USDT$|(UP|DOWN|BULL|BEAR|3L|3S)USDT$/;
 
   /**
    * Per-coin research cache. Each lookup costs two CoinGecko calls and the
@@ -506,11 +515,14 @@ export class MarketDataService {
   ): Promise<CoinAnalysis[]> {
     if (market.source !== 'binance' || market.top50.length === 0) return [];
 
+    // 1 saatlik verisi olmayan coin aday olamaz: hareket edip etmedigini
+    // bilmiyoruz, "0" varsaymak onu sakin sanmak olurdu.
     const movers = [...market.top50]
+      .filter((c) => c.price_change_percentage_1h !== null)
       .sort(
         (a, b) =>
-          Math.abs(b.price_change_percentage_1h) -
-          Math.abs(a.price_change_percentage_1h),
+          Math.abs(b.price_change_percentage_1h!) -
+          Math.abs(a.price_change_percentage_1h!),
       )
       .slice(0, count);
 
@@ -649,7 +661,7 @@ export class MarketDataService {
         return {
           ...b,
           name: g?.name ?? b.symbol,
-          price_change_percentage_1h: g?.price_change_percentage_1h ?? 0,
+          price_change_percentage_1h: g?.price_change_percentage_1h ?? null,
         };
       });
       if (gecko.length === 0) {
@@ -704,7 +716,10 @@ export class MarketDataService {
             name: t.symbol.slice(0, -4),
             current_price: parseFloat(t.lastPrice),
             price_change_percentage_24h: parseFloat(t.priceChangePercent),
-            price_change_percentage_1h: 0, // merged from CoinGecko by the caller
+            // CoinGecko eslesmesi yoksa null kalir. Eskiden 0 yaziliyordu ve
+          // model bunu "hic hareket etmemis" diye okuyordu — eksik veri degil,
+          // YANLIS veri. Top 50'nin yarisi bu durumdaydi.
+          price_change_percentage_1h: null,
             total_volume: parseFloat(t.quoteVolume),
             onFutures: true,
           }))
@@ -738,7 +753,8 @@ export class MarketDataService {
       name: c.name,
       current_price: c.current_price ?? 0,
       price_change_percentage_24h: c.price_change_percentage_24h ?? 0,
-      price_change_percentage_1h: c.price_change_percentage_1h_in_currency ?? 0,
+      price_change_percentage_1h:
+        c.price_change_percentage_1h_in_currency ?? null,
       total_volume: c.total_volume ?? 0,
       // Unverified — CoinGecko lists spot coins that may have no futures pair.
       onFutures: false,

@@ -19,6 +19,17 @@ const baseSignal = (over: Partial<TradeSignal> = {}): TradeSignal => ({
   ...over,
 });
 
+/**
+ * Fikstur fiyatlari gercekci olmali: giris/piyasa sapma kontrolu eklendikten
+ * sonra "fiyat 1, giris 67450" diyen bir fikstur hakli olarak reddediliyor.
+ */
+const PRICES: Record<string, number> = {
+  BTCUSDT: 67450,
+  ETHUSDT: 3200,
+  SOLUSDT: 150,
+  '1000PEPEUSDT': 0.000004,
+};
+
 const binanceMarket = (pairs: string[]): MarketOverview => ({
   btc: null,
   eth: null,
@@ -27,7 +38,7 @@ const binanceMarket = (pairs: string[]): MarketOverview => ({
     symbol: pair.replace('USDT', ''),
     pair,
     name: pair,
-    current_price: 1,
+    current_price: PRICES[pair] ?? 1,
     price_change_percentage_24h: 0,
     price_change_percentage_1h: 0,
     total_volume: 1,
