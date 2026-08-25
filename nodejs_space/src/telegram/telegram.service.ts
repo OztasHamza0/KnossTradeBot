@@ -65,9 +65,19 @@ export class TelegramService {
     // adresini bulan herkes faturayi buyutebilirdi.
     if (!this.isAllowed(chatId)) {
       this.logger.warn(`Unauthorized chat ${chatId} rejected`);
+      // Chat id'yi mesaja yaziyoruz. Sahibin kendi id'sini ogrenmesinin tek
+      // yolu Render loglarini taramakti; ilk kurulumda ALLOWED_CHAT_IDS'e ne
+      // yazacagini bilmeden bota yaziyor ve sadece "izniniz yok" goruyordu.
+      //
+      // Yabanci icin sizinti degil: kisinin kendi chat id'si zaten kendisine
+      // acik bir bilgi (@userinfobot ayni seyi soyluyor) ve baskasinin
+      // id'sini gostermiyor.
       await this.sendMessage(
         chatId,
-        '🔒 Bu bot özel kullanım için. Erişim izniniz yok.',
+        `🔒 Bu bot özel kullanım için, erişim izniniz yok.\n\n` +
+          `Bu botun sahibiysen: senin chat id'in ${chatId}\n` +
+          `Bu değeri ALLOWED_CHAT_IDS ortam değişkenine yaz ve servisi ` +
+          `yeniden başlat. Birden fazla kişi için virgülle ayır.`,
       );
       return;
     }

@@ -497,3 +497,58 @@ describe('TelegramService buyuk harfli Turkce komutlar', () => {
     expect(service.isCreditCommand('KREDİ KARTI NEDİR')).toBe(false);
   });
 });
+
+describe('TelegramService yetkisiz sohbet mesaji', () => {
+  const sent: { chatId: string; text: string }[] = [];
+
+  const build = (allow?: string) => {
+    const s: any = new TelegramService(
+      {
+        get: (k: string) => (k === 'ALLOWED_CHAT_IDS' ? allow : undefined),
+      } as any,
+      { active_chats: { upsert: async () => undefined } } as any,
+      stubEngine,
+      stubMarket,
+      stubOutcome,
+    );
+    s.sendMessage = async (chatId: string, text: string) => {
+      sent.push({ chatId, text });
+      return true;
+    };
+    return s;
+  };
+
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it('yetkisiz kullaniciya kendi chat id-sini soyler', async () => {
+    // Ilk kurulumda sahibin kendi id-sini ogrenmesinin tek yolu Render
+    // loglarini taramakti.
+    await build('1').processUpdate({
+      message: { chat: { id: 987654321 }, text: 'tara' },
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain('987654321');
+    expect(sent[0].text).toContain('ALLOWED_CHAT_IDS');
+  });
+
+  it('listedeki kullaniciyi reddetmez', async () => {
+    const s = build('987654321,111');
+    expect(s.isAllowed('987654321')).toBe(true);
+    expect(s.isAllowed('111')).toBe(true);
+    expect(s.isAllowed('222')).toBe(false);
+  });
+
+  it('liste bossa herkes gecer (geriye donuk uyumluluk)', () => {
+    expect(build(undefined).isAllowed('herhangi')).toBe(true);
+    expect(build('   ').isAllowed('herhangi')).toBe(true);
+  });
+
+  it('grup id-leri (negatif) ve bosluklu liste calisir', () => {
+    const s = build(' -1001234567 , 987654321 ');
+    expect(s.isAllowed('-1001234567')).toBe(true);
+    expect(s.isAllowed('987654321')).toBe(true);
+  });
+});
