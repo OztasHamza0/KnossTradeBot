@@ -1,0 +1,57 @@
+==============================================================================
+ALTINCI EKSEN — FONLAMA ORANI SINYAL OLARAK
+==============================================================================
+Zaman dilimi : 4h
+Ayar / OOS   : 8 / 8 sembol
+
+ONCEDEN ILAN EDILEN BIRINCIL HIPOTEZ:
+  kontrarian, 30 gun pencere, uc %20, stop 2 ATR, R:R 2
+  Gerekce: asiri fonlama = kalabalik taraf = sikisma.
+
+------------------------------------------------------------------------------
+1) BIRINCIL TEST — DOKUNULMAMIS sembollerde, TEK kosu
+------------------------------------------------------------------------------
+  beklenti : +0.014 R   (583 gorulmemis islem)
+  sans dagilimi kosuluyor...                                          yazi-tura ortalamasi : -0.050 R
+  YUZDELIK             : %85
+
+  >> Birincil hipotez %95 esigini GECMIYOR. Onceden ilan edilmisti,
+     yani sonradan secim yanliligi yok — sonuc oldugu gibi okunur.
+
+------------------------------------------------------------------------------
+2) KESIF — varyant izgarasi, AYAR sembollerinde
+------------------------------------------------------------------------------
+  12 varyant deneniyor.
+  Sifir edge varsayiminda EN IYININ beklenen yuzdeligi:
+     k/(k+1) = 12/13 = %92
+  Yani buradaki en iyi sonuc, bu esigi ASMADIKCA hicbir sey ifade etmez.
+
+  VARYANT                    ISLEM   BEKLENTI  KARAR
+  --------------------------------------------------------------------------
+  kontra p45 uc10              424     -0.033  edge-yok
+  kontra p45 uc20              511     -0.131  edge-yok
+  kontra p90 uc10              414     -0.058  edge-yok
+  kontra p90 uc20              511     -0.019  edge-yok
+  kontra p180 uc10             418     -0.104  edge-yok
+  kontra p180 uc20             492     -0.050  edge-yok
+  moment p45 uc10              453     -0.078  edge-yok
+  moment p45 uc20              555     -0.045  edge-yok
+  moment p90 uc10              451     -0.075  edge-yok
+  moment p90 uc20              551     -0.075  edge-yok
+  moment p180 uc10             435     -0.043  edge-yok
+  moment p180 uc20             542     -0.047  edge-yok
+  --------------------------------------------------------------------------
+
+  Kesifte en iyi: kontra p90 uc20  (-0.019 R, ayar sembollerinde)
+  Bu bir BULGU DEGIL — 12 varyantin en iyisi, ve ayar sembollerinde.
+  Anlamli olmasi icin dokunulmamis sembollerde de ayrismasi gerekir.
+
+------------------------------------------------------------------------------
+3) KESIFTEKI EN IYI — dokunulmamis sembollerde
+------------------------------------------------------------------------------
+  kontra p90 uc20
+  beklenti : +0.014 R   (583 islem)
+  YUZDELIK : %85
+
+  >> Yetersiz. Coklu karsilastirma esigi %92, %95 esigi asilmadi.
+

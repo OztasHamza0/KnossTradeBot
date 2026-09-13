@@ -1,0 +1,59 @@
+==============================================================================
+ILERI-YURUYEN (WALK-FORWARD) DOGRULAMA
+==============================================================================
+Zaman dilimi : 1h
+Semboller    : 8  [DOKUNULMAMIS]
+Dilim        : 6  (ilk %40 egitim)
+Aday havuzu  : 12 strateji
+Kontrol      : 12 yazi-tura, AYNI secim kurali, GEOMETRI ESLESMELI, 40 tekrar
+
+Her dilimde YALNIZCA o ana kadarki veriye bakilarak bir aday
+secilir, secilen BIR SONRAKI dilimde kosulur. Asagidaki islemler
+secim aninda GORULMEMIS islemlerdir.
+
+SEMBOL      TEST ISLEM   BEKLENTI   SECILEN ADAYLAR
+------------------------------------------------------------------------------
+AVAXUSDT           316     +0.104   volume-thrustx6
+ATOMUSDT           302     +0.027   volume-thrustx6
+NEARUSDT           551     -0.106   volume-thrustx4 ema-pullbackx1 ts-momentumx1
+LTCUSDT            786     -0.130   volume-thrustx3 mtf-trendx2 vol-squeezex1
+DOTUSDT            540     -0.072   volume-thrustx4 ts-momentumx2
+UNIUSDT            302     -0.072   vol-squeezex5 rsi-divergencex1
+FILUSDT            629     -0.024   donchian-55x6
+APTUSDT            332     +0.003   volume-thrustx3 donchian-55x3
+------------------------------------------------------------------------------
+ORTALAMA BEKLENTI (gercek adaylar): -0.034 R  (3758 islem)
+
+Kontrol grubu kosuluyor (40 tekrar)...
+  10/40...  20/40...  30/40...  40/40...                              KONTROL GRUBU (12 yazi-tura arasindan AYNI kuralla secim):
+  ortalama   -0.066 R
+  std sapma  +0.035 R
+  en kotu    -0.132 R
+  ortanca    -0.066 R
+  en iyi     +0.036 R
+
+==============================================================================
+SONUC
+==============================================================================
+  gercek adaylar : -0.034 R
+  yazi-tura      : -0.066 R
+  fark           : +0.032 R
+  YUZDELIK       : %83
+
+  >> Ust dilimde ama %95 esigini gecmiyor. Ayrisma YOK.
+
+  Not: taban NEGATIF cikiyorsa bu normaldir — secim yanliligi
+  egitim doneminde pozitif gorunen adayi secer, ama komisyon ve
+  kayma test doneminde onu asagi ceker. Onemli olan gercek
+  adaylarin bu SAPMAYI asip asmadigi.
+
+En cok secilen adaylar (tum sembol x dilim):
+  volume-thrust        26 kez
+  donchian-55          9 kez
+  vol-squeeze          6 kez
+  ts-momentum          3 kez
+  mtf-trend            2 kez
+  ema-pullback         1 kez
+
+  Secim savruluyorsa (hep farkli aday seciliyorsa), egitim
+  donemindeki "en iyi" gurultudur — kalici bir ustunluk yok.

@@ -1,0 +1,29 @@
+
+SANS TESTI — 4h, 8 sembol, stop 3 ATR / R:R 3
+50 farkli tohumla yazi-tura kosuluyor. Bunlarin HICBIRINDE edge yok;
+ureten sey saf sans. Adayimiz bu dagilimin neresine dusuyor?
+
+  3/3: 10/50 kosu...  3/3: 20/50 kosu...  3/3: 30/50 kosu...  3/3: 40/50 kosu...  3/3: 50/50 kosu...                                        SANS DAGILIMI (edge'siz stratejilerin beklentisi):
+  en kotu    -0.294 R
+  %25        -0.171 R
+  ortanca    -0.055 R
+  ortalama   -0.065 R
+  %75        +0.041 R
+  %90        +0.098 R
+  %95        +0.150 R
+  en iyi     +0.332 R
+
+ADAY [stop/rr]              BEKLENTI   YUZDELIK  YORUM
+----------------------------------------------------------------------
+  2/2: 10/50 kosu...  2/2: 20/50 kosu...  2/2: 30/50 kosu...  2/2: 40/50 kosu...  2/2: 50/50 kosu...                                        ts-momentum 2/2* [2/2]        -0.099        38%  yazi-turanin ALTINDA
+donchian-20 CANLI [3/3]       -0.119        42%  ORTALAMA BIR YAZI-TURADAN FARKSIZ
+donchian-55 [3/3]             +0.053        80%  ust dilimde ama ayrismiyor
+volume-thrust [3/3]           -0.133        42%  ORTALAMA BIR YAZI-TURADAN FARKSIZ
+ts-momentum 3/3 [3/3]         -0.015        64%  ORTALAMA BIR YAZI-TURADAN FARKSIZ
+----------------------------------------------------------------------
+
+Nasil okunmali: yuzdelik, adayin kac yazi-turayi gectigini soyluyor.
+%50 demek "rastgele stratejilerin yarisi bundan iyi" demektir — yani
+elde bir sey yok. Anlamli sayilmak icin en az %95 gerekir, ve o bile
+elli konfigurasyon denendikten sonra tek basina yeterli degildir.
+

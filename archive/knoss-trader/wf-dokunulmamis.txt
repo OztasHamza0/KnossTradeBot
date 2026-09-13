@@ -1,0 +1,24 @@
+=== 4h, 6 dilim, 100 taban, DOKUNULMAMIS ===
+Semboller    : 8  [DOKUNULMAMIS]
+SONUC
+==============================================================================
+  gercek adaylar : -0.067 R
+  yazi-tura      : -0.076 R
+  fark           : +0.009 R
+  YUZDELIK       : %54
+
+=== 4h, 8 dilim, 60 taban, DOKUNULMAMIS ===
+SONUC
+==============================================================================
+  gercek adaylar : -0.052 R
+  yazi-tura      : -0.067 R
+  fark           : +0.015 R
+  YUZDELIK       : %57
+
+=== 1h, 6 dilim, 100 taban, DOKUNULMAMIS ===
+SONUC
+==============================================================================
+  gercek adaylar : -0.023 R
+  yazi-tura      : -0.077 R
+  fark           : +0.053 R
+  YUZDELIK       : %84

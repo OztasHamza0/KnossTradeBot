@@ -1,0 +1,21 @@
+node_modules/
+dist/
+data/
+.env
+.env.local
+*.log
+.env.mainnet
+.env.*
+bot-state.json
+heartbeat.json
+_probe.ts
+_*.ts
+
+# Denetim ajanlarinin gecici dosyalari. Bir tur denetim, motorun
+# _alt kopyalarini ve src2/ altinda tum agacin kopyasini birakti;
+# bunlar repoda kalsa sonraki oturum gercek dosya sanabilir.
+tmp_audit/
+*_alt.ts
+src/cli/audit-*.ts
+bot.lock
+bot-state.json.tmp

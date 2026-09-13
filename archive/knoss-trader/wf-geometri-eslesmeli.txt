@@ -1,0 +1,31 @@
+########## 4h, 6 dilim, 100 taban — GEOMETRI ESLESMELI ##########
+  10/100...  20/100...  30/100...  40/100...  50/100...  60/100...  70/100...  80/100...  90/100...  100/100...                              KONTROL GRUBU (12 yazi-tura arasindan AYNI kuralla secim):
+  ortalama   -0.053 R
+  std sapma  +0.066 R
+  en kotu    -0.197 R
+  ortanca    -0.051 R
+  en iyi     +0.138 R
+
+==============================================================================
+SONUC
+==============================================================================
+  gercek adaylar : +0.032 R
+  yazi-tura      : -0.053 R
+  fark           : +0.085 R
+  YUZDELIK       : %90
+
+########## 4h, 8 dilim, 60 taban — GEOMETRI ESLESMELI ##########
+SONUC
+==============================================================================
+  gercek adaylar : +0.048 R
+  yazi-tura      : -0.065 R
+  fark           : +0.113 R
+  YUZDELIK       : %98
+
+########## 1h, 6 dilim, 100 taban — GEOMETRI ESLESMELI ##########
+SONUC
+==============================================================================
+  gercek adaylar : -0.099 R
+  yazi-tura      : -0.082 R
+  fark           : -0.017 R
+  YUZDELIK       : %40

@@ -1,0 +1,37 @@
+
+EDGE TARAMASI — 4h, 8 sembol, 5400 mum/sembol
+Karar GORULMEMIS son %30'a gore. Komisyon %0.05/yon, kayma %0.02, islem basi risk %1.
+
+STRATEJI                                       OOS ISLEM  BEKLENTI  TABAN FARKI  POZ/TOPLAM  KARAR
+------------------------------------------------------------------------------------------------------------
+TS momentum 12/48/168 (stop 2 ATR, R:R 2)            385     0.008        0.078         4/8  UMUTLU
+RSI14 uyumsuzlugu (pivot 3, stop 1.5 ATR, R:R         69     0.207        0.305         0/0  yetersiz veri
+Hacim 2.5x patlama devami (stop 1.8 ATR, R:R         134     0.061        0.149         1/1  yetersiz veri
+Aralik 40 kenar tepkisi (kenar %25, stop 1 AT         58     0.038        0.095         0/0  yetersiz veri
+Bollinger 20 ortalamaya donus (z 2, stop 2 AT         62    -0.155       -0.049         0/0  yetersiz veri
+Oynaklik sikismasi kirilimi (BB20, en dar %20        178    -0.265       -0.109         0/1  yetersiz veri
+Gunluk 6s acilis araligi kirilimi (stop 1 ATR        953    -0.035        0.089         3/8  edge yok
+EMA21/55 geri cekilme (stop 1.5 ATR, R:R 2)          497    -0.050        0.071         2/8  edge yok
+Donchian 55 kirilim (stop 1.5 ATR, R:R 2, EMA        296    -0.074        0.009         2/8  edge yok
+MTF 4x hiza (ust EMA50, alt EMA20, stop 1.5 A        678    -0.029        0.008         4/8  edge yok
+EMA50/200 geri cekilme (stop 1.5 ATR, R:R 2)         401    -0.122       -0.052         4/8  edge yok
+Donchian 20 kirilim (stop 1.5 ATR, R:R 2, EMA        407    -0.110       -0.071         1/8  edge yok
+------------------------------------------------------------------------------------------------------------
+
+1 UMUTLU STRATEJI:
+
+  TS momentum 12/48/168 (stop 2 ATR, R:R 2)
+    Oy kullanan 8 sembolun 4'inde pozitif (taranan toplam 8), taban farki 0.078 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.050 R  (47 islem, getiri -2.8%, max dusus 10.8%)
+      + ETHUSDT       0.335 R  (41 islem, getiri 14.2%, max dusus 4.3%)
+        SOLUSDT      -0.185 R  (48 islem, getiri -8.9%, max dusus 14.3%)
+        BNBUSDT      -0.149 R  (49 islem, getiri -7.5%, max dusus 14.4%)
+        XRPUSDT      -0.101 R  (53 islem, getiri -5.7%, max dusus 11.3%)
+      + DOGEUSDT      0.064 R  (48 islem, getiri 2.6%, max dusus 10.1%)
+      + ADAUSDT       0.123 R  (46 islem, getiri 5.3%, max dusus 11.3%)
+      + LINKUSDT      0.026 R  (53 islem, getiri 0.8%, max dusus 11.0%)
+
+Bir sonraki adim: bu stratejileri farkli zaman diliminde ve daha uzun
+gecmiste dogrula. Tek bir taramada iyi gorunmek yeterli degil.
+

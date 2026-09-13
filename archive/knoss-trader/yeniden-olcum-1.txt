@@ -1,0 +1,96 @@
+############ 1) EDGE BUTCESI — yeni tespit duvarlari ############
+IKI DUVAR
+================================================================================
+  DUVAR 1 — maliyet tabani (ortanca):
+     varsayilan kaymayla : +0.078 R
+     OLCULEN kaymayla    : +0.233 R
+     -> Strateji bunun USTUNDE ham edge uretmezse net NEGATIF.
+
+  DUVAR 2 — tespit esigi (ortanca): +0.027 R
+     10609 islem, sd(R) 1.40
+     -> Bundan kucuk bir edge VAR OLSA BILE gorunmez.
+
+  ARANAN EDGE, IKISININ DE USTUNDE olmali: > +0.233 R
+IKI DUVAR
+================================================================================
+  DUVAR 1 — maliyet tabani (ortanca):
+     varsayilan kaymayla : +0.038 R
+     OLCULEN kaymayla    : +0.113 R
+     -> Strateji bunun USTUNDE ham edge uretmezse net NEGATIF.
+
+  DUVAR 2 — tespit esigi (ortanca): +0.055 R
+     2655 islem, sd(R) 1.41
+     -> Bundan kucuk bir edge VAR OLSA BILE gorunmez.
+
+  ARANAN EDGE, IKISININ DE USTUNDE olmali: > +0.113 R
+
+############ 2) TARAMA — 6 yil ############
+STRATEJI                                       OOS ISLEM  BEKLENTI  TABAN FARKI  POZ/TOPLAM  KARAR
+------------------------------------------------------------------------------------------------------------
+STRATEJI                                       OOS ISLEM  BEKLENTI  TABAN FARKI  POZ/TOPLAM  KARAR
+------------------------------------------------------------------------------------------------------------
+5 UMUTLU STRATEJI:
+
+  Hacim 2.5x patlama devami (stop 1.8 ATR, R:R 1.5)
+    Oy kullanan 8 sembolun 5'inde pozitif (taranan toplam 8), taban farki 0.142 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.003 R  (60 islem, getiri -0.6%, max dusus 12.5%)
+      + ETHUSDT       0.036 R  (55 islem, getiri 1.6%, max dusus 6.2%)
+        SOLUSDT      -0.045 R  (40 islem, getiri -2.1%, max dusus 9.9%)
+      + BNBUSDT       0.094 R  (34 islem, getiri 3.0%, max dusus 5.2%)
+      + XRPUSDT       0.178 R  (33 islem, getiri 5.8%, max dusus 4.8%)
+        DOGEUSDT     -0.107 R  (33 islem, getiri -3.7%, max dusus 7.6%)
+      + ADAUSDT       0.028 R  (35 islem, getiri 0.7%, max dusus 5.7%)
+      + LINKUSDT      0.321 R  (28 islem, getiri 9.2%, max dusus 3.4%)
+
+  Donchian 55 kirilim (stop 1.5 ATR, R:R 2, EMA200 filtresi)
+    Oy kullanan 8 sembolun 5'inde pozitif (taranan toplam 8), taban farki 0.122 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.106 R  (94 islem, getiri -10.3%, max dusus 14.1%)
+      + ETHUSDT       0.158 R  (86 islem, getiri 13.5%, max dusus 13.4%)
+      + SOLUSDT       0.065 R  (91 islem, getiri 5.1%, max dusus 10.8%)
+        BNBUSDT      -0.086 R  (96 islem, getiri -8.8%, max dusus 17.6%)
+      + XRPUSDT       0.128 R  (91 islem, getiri 11.3%, max dusus 12.4%)
+      + DOGEUSDT      0.237 R  (77 islem, getiri 19.0%, max dusus 9.8%)
+      + ADAUSDT       0.226 R  (94 islem, getiri 22.4%, max dusus 10.0%)
+        LINKUSDT     -0.018 R  (90 islem, getiri -2.5%, max dusus 12.4%)
+
+  TS momentum 12/48/168 (stop 2 ATR, R:R 2)
+    Oy kullanan 8 sembolun 6'inde pozitif (taranan toplam 8), taban farki 0.111 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.000 R  (117 islem, getiri -1.2%, max dusus 10.8%)
+      + ETHUSDT       0.178 R  (120 islem, getiri 22.2%, max dusus 11.9%)
+        SOLUSDT      -0.008 R  (115 islem, getiri -2.1%, max dusus 16.9%)
+      + BNBUSDT       0.074 R  (129 islem, getiri 8.6%, max dusus 17.1%)
+      + XRPUSDT       0.033 R  (127 islem, getiri 3.0%, max dusus 11.3%)
+      + DOGEUSDT      0.016 R  (123 islem, getiri 0.7%, max dusus 10.1%)
+      + ADAUSDT       0.105 R  (114 islem, getiri 11.4%, max dusus 11.3%)
+      + LINKUSDT      0.057 R  (122 islem, getiri 5.9%, max dusus 13.5%)
+
+  Donchian 20 kirilim (stop 1.5 ATR, R:R 2, EMA200 filtresi)
+    Oy kullanan 8 sembolun 4'inde pozitif (taranan toplam 8), taban farki 0.094 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.024 R  (128 islem, getiri -4.2%, max dusus 17.8%)
+      + ETHUSDT       0.036 R  (128 islem, getiri 3.3%, max dusus 19.3%)
+        SOLUSDT      -0.012 R  (138 islem, getiri -3.0%, max dusus 22.1%)
+        BNBUSDT      -0.079 R  (129 islem, getiri -10.8%, max dusus 24.6%)
+      + XRPUSDT       0.165 R  (132 islem, getiri 22.6%, max dusus 10.2%)
+      + DOGEUSDT      0.205 R  (117 islem, getiri 25.6%, max dusus 11.3%)
+      + ADAUSDT       0.169 R  (128 islem, getiri 22.4%, max dusus 16.5%)
+        LINKUSDT     -0.179 R  (135 islem, getiri -22.5%, max dusus 28.3%)
+
+  MTF 4x hiza (ust EMA50, alt EMA20, stop 1.5 ATR, R:R 2)
+    Oy kullanan 8 sembolun 5'inde pozitif (taranan toplam 8), taban farki 0.085 R.
+    sembol bazinda gorulmemis beklenti:
+        BTCUSDT      -0.042 R  (221 islem, getiri -10.8%, max dusus 24.1%)
+      + ETHUSDT       0.243 R  (172 islem, getiri 49.1%, max dusus 10.9%)
+        SOLUSDT      -0.039 R  (215 islem, getiri -9.9%, max dusus 19.3%)
+      + BNBUSDT       0.066 R  (207 islem, getiri 12.1%, max dusus 14.2%)
+      + XRPUSDT       0.011 R  (221 islem, getiri 0.3%, max dusus 20.5%)
+      + DOGEUSDT      0.018 R  (192 islem, getiri 1.5%, max dusus 16.6%)
+      + ADAUSDT       0.047 R  (194 islem, getiri 7.4%, max dusus 12.1%)
+        LINKUSDT     -0.119 R  (233 islem, getiri -25.9%, max dusus 36.3%)
+
+Bir sonraki adim: bu stratejileri farkli zaman diliminde ve daha uzun
+gecmiste dogrula. Tek bir taramada iyi gorunmek yeterli degil.
+

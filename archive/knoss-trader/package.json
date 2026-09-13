@@ -1,0 +1,55 @@
+{
+  "name": "knoss-trader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Binance Futures otomatik islem botu — once backtest, sonra testnet, sonra canli",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
+    "data": "ts-node src/cli/fetch-data.ts",
+    "backtest": "ts-node src/cli/backtest.ts",
+    "sweep": "ts-node src/cli/sweep.ts",
+    "robustness": "ts-node src/cli/robustness.ts",
+    "luck-test": "ts-node src/cli/luck-test.ts",
+    "funding-yield": "ts-node src/cli/funding-yield.ts",
+    "structure-test": "ts-node src/cli/structure-test.ts",
+    "verify": "ts-node src/cli/verify-mainnet.ts",
+    "bot": "ts-node src/cli/run.ts",
+    "report": "ts-node src/cli/report.ts",
+    "check": "ts-node src/cli/check.ts",
+    "funding-conditional": "ts-node src/cli/funding-conditional.ts",
+    "cross-sweep": "ts-node src/cli/cross-sweep.ts",
+    "cross-luck": "ts-node src/cli/cross-luck.ts",
+    "bot:testnet": "ts-node src/cli/run.ts --symbols=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,DOTUSDT,LTCUSDT,NEARUSDT,ATOMUSDT,UNIUSDT,FILUSDT,APTUSDT,ARBUSDT,OPUSDT,INJUSDT,SUIUSDT --interval=1h --leverage=5 --risk=1 --tick=60 --max-trades=40 --max-loss=15 --max-concurrent=4 --max-total-risk=4",
+    "exit-sweep": "ts-node src/cli/exit-sweep.ts",
+    "exit-grid": "ts-node src/cli/exit-grid.ts",
+    "path-test": "ts-node src/cli/path-test.ts",
+    "tracking": "ts-node src/cli/tracking.ts",
+    "bot:gozetimli": "ts-node src/cli/supervisor.ts --symbols=BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,ADAUSDT,AVAXUSDT,LINKUSDT,DOTUSDT,LTCUSDT,NEARUSDT,ATOMUSDT,UNIUSDT,FILUSDT,APTUSDT,ARBUSDT,OPUSDT,INJUSDT,SUIUSDT --interval=1h --leverage=5 --risk=1 --tick=60 --max-trades=40 --max-loss=15 --max-concurrent=4 --max-total-risk=4",
+    "baseline-noise": "ts-node src/cli/baseline-noise.ts",
+    "walkforward": "ts-node src/cli/walkforward.ts",
+    "edge-butcesi": "ts-node src/cli/edge-butcesi.ts",
+    "fetch-funding": "ts-node src/cli/fetch-funding.ts",
+    "funding-eksen": "ts-node src/cli/funding-eksen.ts",
+    "grid-test": "ts-node src/cli/grid-test.ts"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$"
+  }
+}

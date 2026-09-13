@@ -1,0 +1,171 @@
+========================================================================
+SEKIZINCI EKSEN — IZGARA (GRID)
+========================================================================
+Zaman dilimi: 4h  |  6.0 yil  |  maker %0.02
+Izgara yon TAHMIN ETMEZ. Salinimdan kazanir, trendde kaybeder.
+Bakilacak sayi getiri DEGIL — getiri ILE max dusus birlikte.
+
+########################################################################
+AYAR SEMBOLLERI
+########################################################################
+
+  >> dar (%3, 20 seviye, disari cikinca YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  BTCUSDT          395   +1824.9       88.5    +592.9  hayatta
+  ETHUSDT         1697   +1368.0       88.1    +534.9  hayatta
+  SOLUSDT         2797    -100.0      105.6   +2918.8  IFLAS (mum 274)
+  BNBUSDT          981    -100.0      100.7   +3131.6  IFLAS (mum 743)
+  XRPUSDT         1953    -100.0      101.6    +407.3  IFLAS (mum 748)
+  DOGEUSDT        1361   +6377.8       94.3   +2472.9  hayatta
+  ADAUSDT         8484    -100.0      119.3     +86.7  IFLAS (mum 983)
+  LINKUSDT        6058    -100.0      104.1     -23.4  IFLAS (mum 1617)
+  ------------------------------------------------------------
+  ORTALAMA               +1133.8      100.3   +1265.2
+  IFLAS: 5/8 sembolde hesap sifirlandi
+
+  >> orta (%5, 20 seviye, YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  BTCUSDT          776    -100.0      100.7    +592.9  IFLAS (mum 495)
+  ETHUSDT         1022    -100.0      101.0    +534.9  IFLAS (mum 461)
+  SOLUSDT         1257    -100.0      111.0   +2918.8  IFLAS (mum 255)
+  BNBUSDT         1716    -100.0      111.1   +3131.6  IFLAS (mum 520)
+  XRPUSDT         1620   +1409.3       93.3    +407.3  hayatta
+  DOGEUSDT        1178   +6125.0       94.2   +2472.9  hayatta
+  ADAUSDT         1977    -100.0      112.9     +86.7  IFLAS (mum 535)
+  LINKUSDT         372    -100.0      100.0     -23.4  IFLAS (mum 140)
+  ------------------------------------------------------------
+  ORTALAMA                +866.8      103.0   +1265.2
+  IFLAS: 6/8 sembolde hesap sifirlandi
+
+  >> genis (%10, 20 seviye, YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  BTCUSDT          181    -100.0      102.0    +592.9  IFLAS (mum 421)
+  ETHUSDT          338   +1488.4       88.0    +534.9  hayatta
+  SOLUSDT         2171  +20051.7       98.5   +2918.8  hayatta
+  BNBUSDT          440   +8108.3       76.2   +3131.6  hayatta
+  XRPUSDT          411   +1538.8       93.6    +407.3  hayatta
+  DOGEUSDT          90   +7200.9       94.3   +2472.9  hayatta
+  ADAUSDT          288    -100.0      100.7     +86.7  IFLAS (mum 12649)
+  LINKUSDT         198    -100.0      103.1     -23.4  IFLAS (mum 61)
+  ------------------------------------------------------------
+  ORTALAMA               +4761.0       94.5   +1265.2
+  IFLAS: 3/8 sembolde hesap sifirlandi
+
+  >> orta + disari cikinca KES (stoplu)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  BTCUSDT         1552    -100.0      101.7    +592.9  IFLAS (mum 597)
+  ETHUSDT         2469    -100.0      101.9    +534.9  IFLAS (mum 570)
+  SOLUSDT         5972    -100.0      102.5   +2918.8  IFLAS (mum 715)
+  BNBUSDT         2023    -100.0      100.0   +3131.6  IFLAS (mum 419)
+  XRPUSDT         2472    -100.0      106.5    +407.3  IFLAS (mum 571)
+  DOGEUSDT        2731    -100.0      104.1   +2472.9  IFLAS (mum 763)
+  ADAUSDT         1126    -100.0      103.8     +86.7  IFLAS (mum 190)
+  LINKUSDT        3399    -100.0      102.6     -23.4  IFLAS (mum 497)
+  ------------------------------------------------------------
+  ORTALAMA                -100.0      102.9   +1265.2
+  IFLAS: 8/8 sembolde hesap sifirlandi
+
+  >> orta + disari cikinca BEKLE (klasik)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  BTCUSDT          187   +1649.6       88.9    +592.9  hayatta
+  ETHUSDT          283   +1403.6       87.2    +534.9  hayatta
+  SOLUSDT          100    -100.0      101.4   +2918.8  IFLAS (mum 211)
+  BNBUSDT          313    -100.0      102.0   +3131.6  IFLAS (mum 535)
+  XRPUSDT          187   +1114.0       98.9    +407.3  hayatta
+  DOGEUSDT          85   +5656.1       94.2   +2472.9  hayatta
+  ADAUSDT          231    -100.0      100.5     +86.7  IFLAS (mum 12649)
+  LINKUSDT         263    -100.0      100.5     -23.4  IFLAS (mum 3723)
+  ------------------------------------------------------------
+  ORTALAMA               +1177.9       96.7   +1265.2
+  IFLAS: 4/8 sembolde hesap sifirlandi
+
+########################################################################
+DOKUNULMAMIS SEMBOLLER — asil sinav
+########################################################################
+
+  >> dar (%3, 20 seviye, disari cikinca YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  AVAXUSDT        4616    -100.0      100.0     +80.3  IFLAS (mum 12569)
+  ATOMUSDT         395    -100.0      106.6     -80.8  IFLAS (mum 48)
+  NEARUSDT         744    -100.0      104.0     +72.7  IFLAS (mum 112)
+  LTCUSDT         3576    -100.0      101.9     -13.5  IFLAS (mum 577)
+  DOTUSDT         2778    -100.0      107.9     -85.9  IFLAS (mum 511)
+  UNIUSDT         3285    +394.0       99.9     +14.7  hayatta
+  FILUSDT         3153    -100.0      100.6     -98.5  IFLAS (mum 2778)
+  APTUSDT         4645    -100.0      100.1     -91.5  IFLAS (mum 5865)
+  ------------------------------------------------------------
+  ORTALAMA                 -38.2      102.6     -25.3
+  IFLAS: 7/8 sembolde hesap sifirlandi
+
+  >> orta (%5, 20 seviye, YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  AVAXUSDT         528    -100.0      105.0     +80.3  IFLAS (mum 462)
+  ATOMUSDT         267    -100.0      111.8     -80.8  IFLAS (mum 48)
+  NEARUSDT         979    -100.0      100.0     +72.7  IFLAS (mum 11635)
+  LTCUSDT          729    -100.0      100.1     -13.5  IFLAS (mum 12636)
+  DOTUSDT         1115    -100.0      100.0     -85.9  IFLAS (mum 6663)
+  UNIUSDT         2425    -100.0      100.0     +14.7  IFLAS (mum 12469)
+  FILUSDT         1324    -100.0      101.1     -98.5  IFLAS (mum 443)
+  APTUSDT         1423    -100.0      100.6     -91.5  IFLAS (mum 6561)
+  ------------------------------------------------------------
+  ORTALAMA                -100.0      102.3     -25.3
+  IFLAS: 8/8 sembolde hesap sifirlandi
+
+  >> genis (%10, 20 seviye, YENIDEN)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  AVAXUSDT         973    -100.0      100.0     +80.3  IFLAS (mum 12487)
+  ATOMUSDT          95    -100.0      114.1     -80.8  IFLAS (mum 48)
+  NEARUSDT        1797    -100.0      120.8     +72.7  IFLAS (mum 511)
+  LTCUSDT          679    -100.0      100.1     -13.5  IFLAS (mum 13113)
+  DOTUSDT         2297    -100.0      128.4     -85.9  IFLAS (mum 749)
+  UNIUSDT          677    -100.0      106.7     +14.7  IFLAS (mum 113)
+  FILUSDT          284    -100.0      108.9     -98.5  IFLAS (mum 39)
+  APTUSDT          493    -100.0      100.5     -91.5  IFLAS (mum 127)
+  ------------------------------------------------------------
+  ORTALAMA                -100.0      109.9     -25.3
+  IFLAS: 8/8 sembolde hesap sifirlandi
+
+  >> orta + disari cikinca KES (stoplu)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  AVAXUSDT        5911    -100.0      103.9     +80.3  IFLAS (mum 814)
+  ATOMUSDT       15132    -100.0      101.4     -80.8  IFLAS (mum 1970)
+  NEARUSDT        5665    -100.0      105.0     +72.7  IFLAS (mum 665)
+  LTCUSDT         2018    -100.0      100.5     -13.5  IFLAS (mum 509)
+  DOTUSDT        11717    -100.0      110.8     -85.9  IFLAS (mum 1797)
+  UNIUSDT         5929    -100.0      100.5     +14.7  IFLAS (mum 689)
+  FILUSDT         6632    -100.0      104.1     -98.5  IFLAS (mum 1039)
+  APTUSDT         5603    -100.0      104.0     -91.5  IFLAS (mum 869)
+  ------------------------------------------------------------
+  ORTALAMA                -100.0      103.8     -25.3
+  IFLAS: 8/8 sembolde hesap sifirlandi
+
+  >> orta + disari cikinca BEKLE (klasik)
+  SEMBOL         DOLUM   GETIRI%  MAXDUSUS%   AL-TUT%  KOMISYON
+  ------------------------------------------------------------
+  AVAXUSDT         341    -100.0      100.1     +80.3  IFLAS (mum 12491)
+  ATOMUSDT          87    -100.0      103.2     -80.8  IFLAS (mum 48)
+  NEARUSDT         737    -100.0      112.0     +72.7  IFLAS (mum 556)
+  LTCUSDT          153    -100.0      100.4     -13.5  IFLAS (mum 3933)
+  DOTUSDT          507    -100.0      100.1     -85.9  IFLAS (mum 6663)
+  UNIUSDT          196    -100.0      101.1     +14.7  IFLAS (mum 108)
+  FILUSDT          499    -100.0      101.4     -98.5  IFLAS (mum 2776)
+  APTUSDT           51    -100.0      109.7     -91.5  IFLAS (mum 25)
+  ------------------------------------------------------------
+  ORTALAMA                -100.0      103.5     -25.3
+  IFLAS: 8/8 sembolde hesap sifirlandi
+
+========================================================================
+NASIL OKUNMALI
+========================================================================
+  Donem 6.0 yil. Getiriyi yila bolmek gerekir.
+  Izgara al-tuttan iyi degilse ve max dususu buyukse, ugrasmaya degmez.
+  "BEKLE" varyanti klasik izgaradir ve trendde ne oldugunu gosterir.

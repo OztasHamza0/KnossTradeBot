@@ -1,0 +1,44 @@
+{
+  "day": "2026-09-02",
+  "trades": 10,
+  "failedAttempts": 0,
+  "dayStartEquity": 4993.8810402,
+  "positions": {
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "side": "LONG",
+      "qty": 14.03,
+      "entryPrice": 99.88,
+      "openedAt": 1788390862158,
+      "clientOrderId": "e-1788390862158",
+      "riskUsdt": 18.691918874000002
+    },
+    "AVAXUSDT": {
+      "symbol": "AVAXUSDT",
+      "side": "LONG",
+      "qty": 273,
+      "entryPrice": 7.19743176,
+      "openedAt": 1788398137700,
+      "clientOrderId": "e-1788398137700",
+      "riskUsdt": 26.2780912936
+    },
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "side": "SHORT",
+      "qty": 0.0368,
+      "entryPrice": 77305.7,
+      "openedAt": 1788413324422,
+      "clientOrderId": "e-1788413324422",
+      "riskUsdt": 37.932327554
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "side": "SHORT",
+      "qty": 1.193,
+      "entryPrice": 2383.32681202,
+      "openedAt": 1788413327236,
+      "clientOrderId": "e-1788413327236",
+      "riskUsdt": 37.932327554
+    }
+  }
+}

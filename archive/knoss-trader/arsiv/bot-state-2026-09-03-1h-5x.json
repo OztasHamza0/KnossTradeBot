@@ -1,0 +1,44 @@
+{
+  "day": "2026-09-03",
+  "trades": 4,
+  "failedAttempts": 0,
+  "dayStartEquity": 4903.83149336,
+  "positions": {
+    "AVAXUSDT": {
+      "symbol": "AVAXUSDT",
+      "side": "LONG",
+      "qty": 293,
+      "entryPrice": 7.28138057,
+      "openedAt": 1788414900488,
+      "clientOrderId": "e-1788414900488",
+      "riskUsdt": 49.04250700999992
+    },
+    "LTCUSDT": {
+      "symbol": "LTCUSDT",
+      "side": "LONG",
+      "qty": 52.528,
+      "entryPrice": 50.13196078,
+      "openedAt": 1788414906137,
+      "clientOrderId": "e-1788414906137",
+      "riskUsdt": 49.47931585184012
+    },
+    "APTUSDT": {
+      "symbol": "APTUSDT",
+      "side": "LONG",
+      "qty": 1305.3,
+      "entryPrice": 0.6016,
+      "openedAt": 1788414911836,
+      "clientOrderId": "e-1788414911836",
+      "riskUsdt": 49.0792800000001
+    },
+    "BNBUSDT": {
+      "symbol": "BNBUSDT",
+      "side": "LONG",
+      "qty": 3.6,
+      "entryPrice": 695.69690221,
+      "openedAt": 1788415208541,
+      "clientOrderId": "e-1788415208541",
+      "riskUsdt": 37.93284795599998
+    }
+  }
+}

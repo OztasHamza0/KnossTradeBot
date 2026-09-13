@@ -1,0 +1,59 @@
+==============================================================================
+ILERI-YURUYEN (WALK-FORWARD) DOGRULAMA
+==============================================================================
+Zaman dilimi : 4h
+Semboller    : 8
+Dilim        : 6  (ilk %40 egitim)
+Aday havuzu  : 12 strateji
+Kontrol      : 12 yazi-tura, AYNI secim kurali, 30 tekrar
+
+Her dilimde YALNIZCA o ana kadarki veriye bakilarak bir aday
+secilir, secilen BIR SONRAKI dilimde kosulur. Asagidaki islemler
+secim aninda GORULMEMIS islemlerdir.
+
+SEMBOL      TEST ISLEM   BEKLENTI   SECILEN ADAYLAR
+------------------------------------------------------------------------------
+BTCUSDT            124     -0.098   ts-momentumx4 mtf-trendx2
+ETHUSDT             72     +0.144   donchian-55x6
+SOLUSDT             56     -0.100   vol-squeezex3 donchian-20x1 volume-thrustx1 
+BNBUSDT             71     -0.067   volume-thrustx3 donchian-20x3
+XRPUSDT            112     -0.120   donchian-20x3 volume-thrustx2 session-breako
+DOGEUSDT            32     +0.292   vol-squeezex3 rsi-divergencex2 donchian-55x1
+ADAUSDT             58     +0.395   donchian-20x2 donchian-55x2 rsi-divergencex2
+LINKUSDT            40     -0.190   vol-squeezex4 volume-thrustx2
+------------------------------------------------------------------------------
+ORTALAMA BEKLENTI (gercek adaylar): +0.032 R  (565 islem)
+
+Kontrol grubu kosuluyor (30 tekrar)...
+  10/30...  20/30...  30/30...                              KONTROL GRUBU (12 yazi-tura arasindan AYNI kuralla secim):
+  ortalama   -0.046 R
+  std sapma  +0.044 R
+  en kotu    -0.153 R
+  ortanca    -0.046 R
+  en iyi     +0.045 R
+
+==============================================================================
+SONUC
+==============================================================================
+  gercek adaylar : +0.032 R
+  yazi-tura      : -0.046 R
+  fark           : +0.077 R
+  YUZDELIK       : %93
+
+  >> Ust dilimde ama %95 esigini gecmiyor. Ayrisma YOK.
+
+  Not: taban NEGATIF cikiyorsa bu normaldir — secim yanliligi
+  egitim doneminde pozitif gorunen adayi secer, ama komisyon ve
+  kayma test doneminde onu asagi ceker. Onemli olan gercek
+  adaylarin bu SAPMAYI asip asmadigi.
+
+En cok secilen adaylar (tum sembol x dilim):
+  donchian-55          10 kez
+  vol-squeeze          10 kez
+  donchian-20          9 kez
+  volume-thrust        8 kez
+  ts-momentum          4 kez
+  rsi-divergence       4 kez
+
+  Secim savruluyorsa (hep farkli aday seciliyorsa), egitim
+  donemindeki "en iyi" gurultudur — kalici bir ustunluk yok.

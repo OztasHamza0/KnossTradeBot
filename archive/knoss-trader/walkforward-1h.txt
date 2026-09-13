@@ -1,0 +1,62 @@
+==============================================================================
+ILERI-YURUYEN (WALK-FORWARD) DOGRULAMA
+==============================================================================
+Zaman dilimi : 1h
+Semboller    : 8
+Dilim        : 6  (ilk %40 egitim)
+Aday havuzu  : 12 strateji
+Kontrol      : 12 yazi-tura, AYNI secim kurali, 30 tekrar
+
+Her dilimde YALNIZCA o ana kadarki veriye bakilarak bir aday
+secilir, secilen BIR SONRAKI dilimde kosulur. Asagidaki islemler
+secim aninda GORULMEMIS islemlerdir.
+
+SEMBOL      TEST ISLEM   BEKLENTI   SECILEN ADAYLAR
+------------------------------------------------------------------------------
+BTCUSDT             88     -0.553   donchian-55x2 vol-squeezex2 mean-reversionx1
+ETHUSDT             73     +0.032   volume-thrustx5 range-bouncex1
+SOLUSDT             69     +0.024   vol-squeezex5 ts-momentumx1
+BNBUSDT            164     -0.182   ema-pullbackx3 ts-momentumx3
+XRPUSDT             57     +0.080   vol-squeezex6
+DOGEUSDT            59     +0.292   mean-reversionx5 ts-momentumx1
+ADAUSDT             92     -0.174   mean-reversionx2 vol-squeezex2 ts-momentumx1
+LINKUSDT            46     -0.310   volume-thrustx3 range-bouncex2 mean-reversio
+------------------------------------------------------------------------------
+ORTALAMA BEKLENTI (gercek adaylar): -0.099 R  (648 islem)
+
+Kontrol grubu kosuluyor (30 tekrar)...
+  10/30...  20/30...  30/30...                              KONTROL GRUBU (12 yazi-tura arasindan AYNI kuralla secim):
+  ortalama   -0.115 R
+  std sapma  +0.039 R
+  en kotu    -0.208 R
+  ortanca    -0.111 R
+  en iyi     -0.049 R
+
+==============================================================================
+SONUC
+==============================================================================
+  gercek adaylar : -0.099 R
+  yazi-tura      : -0.115 R
+  fark           : +0.016 R
+  YUZDELIK       : %60
+
+  >> Secim yontemi, AYNI KURALLA secilen yazi-turalardan
+     ayrismiyor. Yani "12 strateji arasindan en iyisini sec"
+     kurali, "12 yazi-tura arasindan en iyisini sec"den
+     daha iyi bir sonuc uretmiyor.
+
+  Not: taban NEGATIF cikiyorsa bu normaldir — secim yanliligi
+  egitim doneminde pozitif gorunen adayi secer, ama komisyon ve
+  kayma test doneminde onu asagi ceker. Onemli olan gercek
+  adaylarin bu SAPMAYI asip asmadigi.
+
+En cok secilen adaylar (tum sembol x dilim):
+  vol-squeeze          15 kez
+  mean-reversion       9 kez
+  volume-thrust        8 kez
+  ts-momentum          7 kez
+  range-bounce         3 kez
+  ema-pullback         3 kez
+
+  Secim savruluyorsa (hep farkli aday seciliyorsa), egitim
+  donemindeki "en iyi" gurultudur — kalici bir ustunluk yok.

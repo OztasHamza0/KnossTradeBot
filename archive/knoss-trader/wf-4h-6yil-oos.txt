@@ -1,0 +1,59 @@
+==============================================================================
+ILERI-YURUYEN (WALK-FORWARD) DOGRULAMA
+==============================================================================
+Zaman dilimi : 4h
+Semboller    : 8  [DOKUNULMAMIS]
+Dilim        : 6  (ilk %40 egitim)
+Aday havuzu  : 12 strateji
+Kontrol      : 12 yazi-tura, AYNI secim kurali, GEOMETRI ESLESMELI, 40 tekrar
+
+Her dilimde YALNIZCA o ana kadarki veriye bakilarak bir aday
+secilir, secilen BIR SONRAKI dilimde kosulur. Asagidaki islemler
+secim aninda GORULMEMIS islemlerdir.
+
+SEMBOL      TEST ISLEM   BEKLENTI   SECILEN ADAYLAR
+------------------------------------------------------------------------------
+AVAXUSDT           157     -0.138   ema-pullbackx3 rsi-divergencex2 volume-thrus
+ATOMUSDT           177     -0.030   ema-pullbackx4 rsi-divergencex2
+NEARUSDT            92     +0.227   vol-squeezex5 volume-thrustx1
+LTCUSDT             62     +0.193   rsi-divergencex5 ema-pullbackx1
+DOTUSDT            191     +0.095   ema-pullbackx4 vol-squeezex2
+UNIUSDT             40     -0.099   range-bouncex6
+FILUSDT            201     -0.115   ts-momentumx5 vol-squeezex1
+APTUSDT             86     -0.192   mean-reversionx3 donchian-20x2 vol-squeezex1
+------------------------------------------------------------------------------
+ORTALAMA BEKLENTI (gercek adaylar): -0.008 R  (1006 islem)
+
+Kontrol grubu kosuluyor (40 tekrar)...
+  10/40...  20/40...  30/40...  40/40...                              KONTROL GRUBU (12 yazi-tura arasindan AYNI kuralla secim):
+  ortalama   -0.054 R
+  std sapma  +0.045 R
+  en kotu    -0.129 R
+  ortanca    -0.056 R
+  en iyi     +0.070 R
+
+==============================================================================
+SONUC
+==============================================================================
+  gercek adaylar : -0.008 R
+  yazi-tura      : -0.054 R
+  fark           : +0.047 R
+  YUZDELIK       : %88
+
+  >> Ust dilimde ama %95 esigini gecmiyor. Ayrisma YOK.
+
+  Not: taban NEGATIF cikiyorsa bu normaldir — secim yanliligi
+  egitim doneminde pozitif gorunen adayi secer, ama komisyon ve
+  kayma test doneminde onu asagi ceker. Onemli olan gercek
+  adaylarin bu SAPMAYI asip asmadigi.
+
+En cok secilen adaylar (tum sembol x dilim):
+  ema-pullback         12 kez
+  rsi-divergence       9 kez
+  vol-squeeze          9 kez
+  range-bounce         6 kez
+  ts-momentum          5 kez
+  mean-reversion       3 kez
+
+  Secim savruluyorsa (hep farkli aday seciliyorsa), egitim
+  donemindeki "en iyi" gurultudur — kalici bir ustunluk yok.

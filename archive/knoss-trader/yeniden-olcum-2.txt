@@ -1,0 +1,7 @@
+############ SANS TESTI — 6 yil, DOKUNULMAMIS 8 sembol ############
+=== 1h ===
+ADAY [stop/rr]              BEKLENTI   YUZDELIK  YORUM
+----------------------------------------------------------------------
+=== 4h ===
+ADAY [stop/rr]              BEKLENTI   YUZDELIK  YORUM
+----------------------------------------------------------------------
